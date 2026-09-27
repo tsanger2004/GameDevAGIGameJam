@@ -469,6 +469,13 @@ fire_enemy_shot :: proc(e: ^Enemy, player_pos: Vec2) {
 update_spawning :: proc(dt: f32) {
 	game.elapsed += dt
 	if game.room == FINAL_ROOM {
+		if game.room_spawned < game.room_enemy_target {
+			game.spawn_timer -= dt
+			if game.spawn_timer <= 0 {
+				spawn_enemy()
+			}
+			return
+		}
 		boss_present := false
 		for e in game.enemies {
 			if e.alive && e.boss {
@@ -626,7 +633,7 @@ handle_collisions :: proc() {
 			if vec2_dist(b.pos, e.pos) < BULLET_RADIUS + e.radius {
 				append(&b.hit_enemy_ids, e.id)
 				b.hits_left -= 1
-				if b.hits_left <= 0 do b.alive = false
+				if b.hits_left <= 0 && b.ricochets_left <= 0 do b.alive = false
 				e.health -= max(1, b.damage - e.armor)
 				if e.health <= 0 {
 					if !e.boss && rand.float32() < game.player.necromancer_chance {
@@ -645,7 +652,7 @@ handle_collisions :: proc() {
 						e.alive = false
 						game.kills += 1
 						game.player.health = min(game.player.max_health, game.player.health + game.player.kill_heal)
-						if split_count > 0 {
+						if split_count > 0 && !was_boss {
 							child_count := split_count * 2
 							for split in 0..<child_count {
 								offset := (f32(split) - f32(child_count - 1) / 2) * 12
@@ -689,7 +696,11 @@ handle_collisions :: proc() {
 		if !game.enemies[i].alive do unordered_remove(&game.enemies, i)
 	}
 
-	if game.state == .Playing && game.room_spawned >= game.room_enemy_target && len(game.enemies) == 0 {
+	hostile_enemies := 0
+	for e in game.enemies {
+		if e.alive && !e.ally do hostile_enemies += 1
+	}
+	if game.state == .Playing && game.room_spawned >= game.room_enemy_target && hostile_enemies == 0 {
 		game.xp += ROOM_XP
 		if game.room == FINAL_ROOM {
 			game.state = .Victory
