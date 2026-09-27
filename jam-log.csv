@@ -2,3 +2,5 @@ session,date,minutes,tool,model,tokens_in,tokens_out,tokens_source,prompts,featu
 1,2026-09-23,40,claude-code,claude-sonnet-5,182000,9400,ccusage incl. cache,11,window;states;movement,4,"best: state switch in one go; worst: invented rl.GetDeltaTime"
 
 1,2026-09-23,30,claude-web,claude-sonnet-5,unavailable,unavailable,unavailable,2,window;states;movement;enemies;shooting;implement kenney assets,5,"best:everything in one go othen then ->; worst: Kenney Assets didn't work as I ran out of tokens"
+2,2026-09-26,10,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,1,Create xp system;upgrade cards for player and enemies,5,"best: everything in one go; worst: Cards are very basic and not very useful for the player. I need to make them more interesting and useful."
+3,2026-09-26,15,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,3,Adjusted xp system to be room based; Added boss; moved balancing into own file,5,"best: everything in one go; Room and cards and xp work well worst: Very basic boss, need to make it more interesting and challenging; balance and cards are still very basic and need to be improved"

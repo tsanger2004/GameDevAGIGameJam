@@ -13,8 +13,6 @@ SCREEN_W :: 1280
 SCREEN_H :: 720
 
 PLAYER_RADIUS        :: 16
-PLAYER_SPEED         :: 260
-PLAYER_MAX_HEALTH    :: 100
 PLAYER_INVULN_TIME   :: 0.6
 PLAYER_CONTACT_DMG   :: 15
 
@@ -23,10 +21,9 @@ BULLET_SPEED    :: 640
 FIRE_COOLDOWN   :: 0.14
 
 ENEMY_RADIUS       :: 14
-ENEMY_BASE_SPEED   :: 90
-ENEMY_MAX_SPEED    :: 190
 SPAWN_INTERVAL_MAX :: 1.2
 SPAWN_INTERVAL_MIN :: 0.25
+FINAL_ROOM        :: ROOM_COUNT
 
 KNOCKBACK :: 900
 
@@ -39,6 +36,14 @@ Vec2 :: rl.Vector2
 Player :: struct {
 	pos:          Vec2,
 	health:       f32,
+	max_health:   f32,
+	speed:        f32,
+	fire_cooldown: f32,
+	bullet_damage: int,
+	bullet_count:  int,
+	bullet_spread: f32,
+	piercing:      int,
+	kill_heal:     f32,
 	invuln_timer: f32,
 	fire_timer:   f32,
 }
@@ -47,16 +52,47 @@ Enemy :: struct {
 	pos:    Vec2,
 	speed:  f32,
 	health: int,
+	radius: f32,
+	boss:   bool,
+	splitter: bool,
 	alive:  bool,
 }
 
 Bullet :: struct {
 	pos:   Vec2,
 	vel:   Vec2,
+	damage: int,
+	hits_left: int,
 	alive: bool,
 }
 
-Game_State :: enum { Playing, Game_Over }
+Game_State :: enum { Playing, Room_Clear, Player_Upgrade, Enemy_Upgrade, Game_Over, Victory }
+
+Upgrade_Type :: enum {
+	Player_Speed, Rapid_Fire, Heavy_Bullets, Max_Health, Heal, Multi_Shot, Piercing, Vampire,
+	Enemy_Haste, Enemy_Armor, Enemy_Swarm, Enemy_Frenzy, Enemy_Elite, Enemy_Splitter, Enemy_Bloodlust, Enemy_Thorns,
+}
+
+Upgrade_Card :: struct {
+	title:       cstring,
+	description: cstring,
+	kind:        Upgrade_Type,
+	player_speed: f32,
+	fire_rate: f32,
+	damage: int,
+	max_health: f32,
+	heal: f32,
+	bullet_count: int,
+	spread: f32,
+	piercing: int,
+	kill_heal: f32,
+	enemy_speed: f32,
+	enemy_health: int,
+	spawn_rate: f32,
+	contact_damage: int,
+	splitter: bool,
+	knockback: f32,
+}
 
 Game :: struct {
 	state:       Game_State,
@@ -66,6 +102,19 @@ Game :: struct {
 	spawn_timer: f32,
 	elapsed:     f32,
 	kills:       int,
+	level:       int,
+	xp:          int,
+	next_xp:     int,
+	room:        int,
+	room_spawned: int,
+	room_enemy_target: int,
+	enemy_speed_bonus: f32,
+	enemy_health_bonus: int,
+	spawn_rate_multiplier: f32,
+	enemy_contact_damage: int,
+	enemy_splitter: bool,
+	enemy_knockback: f32,
+	upgrade_cards: [3]Upgrade_Card,
 }
 
 game: Game
@@ -77,6 +126,9 @@ game: Game
 vec2_add :: proc(a, b: Vec2) -> Vec2 { return Vec2{a.x + b.x, a.y + b.y} }
 vec2_sub :: proc(a, b: Vec2) -> Vec2 { return Vec2{a.x - b.x, a.y - b.y} }
 vec2_scale :: proc(a: Vec2, s: f32) -> Vec2 { return Vec2{a.x * s, a.y * s} }
+vec2_rotate :: proc(a: Vec2, angle: f32) -> Vec2 {
+	return Vec2{a.x * math.cos(angle) - a.y * math.sin(angle), a.x * math.sin(angle) + a.y * math.cos(angle)}
+}
 
 vec2_len :: proc(a: Vec2) -> f32 {
 	return math.sqrt(a.x * a.x + a.y * a.y)
@@ -104,13 +156,105 @@ init_game :: proc() {
 	clear(&game.enemies)
 	clear(&game.bullets)
 	game.player = Player{
-		pos    = Vec2{SCREEN_W / 2, SCREEN_H / 2},
-		health = PLAYER_MAX_HEALTH,
+		pos            = Vec2{SCREEN_W / 2, SCREEN_H / 2},
+		health         = PLAYER_START_HEALTH,
+		max_health     = PLAYER_START_HEALTH,
+		speed          = PLAYER_START_SPEED,
+		fire_cooldown  = PLAYER_START_FIRE_COOLDOWN,
+		bullet_damage  = PLAYER_START_DAMAGE,
+			bullet_count   = 1,
+			bullet_spread  = 0,
 	}
 	game.spawn_timer = SPAWN_INTERVAL_MAX
 	game.elapsed = 0
 	game.kills = 0
+	game.level = 1
+	game.xp = 0
+	game.next_xp = 2
+	game.room = 1
+	game.enemy_speed_bonus = 0
+	game.enemy_health_bonus = 0
+	game.spawn_rate_multiplier = 1
+	game.enemy_contact_damage = ENEMY_CONTACT_DAMAGE
+	game.enemy_splitter = false
+	game.enemy_knockback = 1
+	start_room()
 	game.state = .Playing
+}
+
+start_room :: proc() {
+	clear(&game.enemies)
+	clear(&game.bullets)
+	game.room_spawned = 0
+	game.room_enemy_target = ROOM_FIRST_ENEMY_COUNT + game.room * ROOM_ENEMIES_PER_ROOM
+	if game.room == FINAL_ROOM do game.room_enemy_target = 1
+	game.spawn_timer = 0.5
+	game.elapsed = 0
+	game.player.pos = Vec2{SCREEN_W / 2, SCREEN_H / 2}
+}
+
+start_next_room :: proc() {
+	game.room += 1
+	start_room()
+	game.state = .Playing
+}
+
+make_upgrade_cards :: proc(enemy: bool) {
+	pool := PLAYER_UPGRADE_POOL
+	pool_size := 8
+	if enemy {
+		pool = ENEMY_UPGRADE_POOL
+	}
+	used: [8]bool
+	for i in 0..<3 {
+		index := int(rand.float32() * f32(pool_size))
+		for used[index] do index = (index + 1) % pool_size
+		used[index] = true
+		game.upgrade_cards[i] = pool[index]
+	}
+}
+
+begin_level_up :: proc() {
+	game.level += 1
+	make_upgrade_cards(false)
+	game.state = .Player_Upgrade
+}
+
+apply_upgrade :: proc(card: Upgrade_Card) {
+	if card.player_speed > 0 do game.player.speed *= card.player_speed
+	if card.fire_rate > 0 do game.player.fire_cooldown *= card.fire_rate
+	game.player.bullet_damage += card.damage
+	game.player.max_health += card.max_health
+	game.player.health += card.max_health
+	game.player.health = min(game.player.max_health, game.player.health + card.heal)
+	if card.bullet_count > 0 do game.player.bullet_count = card.bullet_count
+	game.player.bullet_spread = max(game.player.bullet_spread, card.spread)
+	game.player.piercing += card.piercing
+	game.player.kill_heal += card.kill_heal
+	game.enemy_speed_bonus += card.enemy_speed
+	game.enemy_health_bonus += card.enemy_health
+	if card.spawn_rate > 0 do game.spawn_rate_multiplier *= card.spawn_rate
+	game.enemy_contact_damage += card.contact_damage
+	if card.splitter do game.enemy_splitter = true
+	game.enemy_knockback += card.knockback
+}
+
+handle_upgrade_input :: proc() {
+	if !rl.IsMouseButtonPressed(.LEFT) do return
+	mouse := rl.GetMousePosition()
+	for i in 0..<3 {
+		x := f32(170 + i * 320)
+		if mouse.x >= x && mouse.x <= x + 260 && mouse.y >= 240 && mouse.y <= 480 {
+			apply_upgrade(game.upgrade_cards[i])
+			if game.state == .Player_Upgrade {
+				make_upgrade_cards(true)
+				game.state = .Enemy_Upgrade
+			} else {
+				start_next_room()
+			}
+			return
+		}
+	}
 }
 
 spawn_enemy :: proc() {
@@ -123,10 +267,26 @@ spawn_enemy :: proc() {
 	case:   pos = Vec2{-ENEMY_RADIUS, rand_range(0, SCREEN_H)}            // left
 	}
 
-	speed := min(ENEMY_BASE_SPEED + game.elapsed * 1.4, f32(ENEMY_MAX_SPEED))
-	health := 1 + int(game.elapsed / 25) // tougher enemies show up over time
+	boss := game.room == FINAL_ROOM
+	speed := min(ENEMY_BASE_SPEED + f32(game.room) * 10, ENEMY_MAX_SPEED) * (1 + game.enemy_speed_bonus)
+	health := ENEMY_ROOM_HEALTH + game.room * ENEMY_HEALTH_PER_ROOM + game.enemy_health_bonus
+	radius := f32(ENEMY_RADIUS)
+	if boss {
+		speed = ENEMY_BOSS_SPEED * (1 + game.enemy_speed_bonus)
+		health = ENEMY_BOSS_HEALTH + game.enemy_health_bonus * 2
+		radius = 34
+	}
 
-	append(&game.enemies, Enemy{pos = pos, speed = speed, health = health, alive = true})
+	append(&game.enemies, Enemy{
+		pos = pos,
+		speed = speed,
+		health = health,
+		radius = radius,
+		boss = boss,
+		splitter = game.enemy_splitter && !boss,
+		alive = true,
+	})
+	game.room_spawned += 1
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +304,7 @@ update_player :: proc(dt: f32) {
 
 	if dir.x != 0 || dir.y != 0 {
 		dir = vec2_normalize(dir)
-		p.pos = vec2_add(p.pos, vec2_scale(dir, PLAYER_SPEED * dt))
+		p.pos = vec2_add(p.pos, vec2_scale(dir, p.speed * dt))
 	}
 
 	p.pos.x = clamp(p.pos.x, PLAYER_RADIUS, SCREEN_W - PLAYER_RADIUS)
@@ -157,11 +317,17 @@ update_player :: proc(dt: f32) {
 		mouse := rl.GetMousePosition()
 		aim := vec2_normalize(vec2_sub(mouse, p.pos))
 		if aim.x != 0 || aim.y != 0 {
-			append(&game.bullets, Bullet{
-				pos   = p.pos,
-				vel   = vec2_scale(aim, BULLET_SPEED),
-				alive = true,
-			})
+			for shot in 0..<p.bullet_count {
+				center := f32(p.bullet_count - 1) / 2
+				shot_aim := vec2_rotate(aim, (f32(shot) - center) * p.bullet_spread)
+				append(&game.bullets, Bullet{
+					pos       = p.pos,
+					vel       = vec2_scale(shot_aim, BULLET_SPEED),
+					damage    = p.bullet_damage,
+					hits_left = p.piercing + 1,
+					alive     = true,
+				})
+			}
 			p.fire_timer = FIRE_COOLDOWN
 		}
 	}
@@ -169,10 +335,11 @@ update_player :: proc(dt: f32) {
 
 update_spawning :: proc(dt: f32) {
 	game.elapsed += dt
+	if game.room_spawned >= game.room_enemy_target do return
 	game.spawn_timer -= dt
 	if game.spawn_timer <= 0 {
 		spawn_enemy()
-		game.spawn_timer = max(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX - game.elapsed * 0.01)
+		game.spawn_timer = max(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX - f32(game.room) * 0.08) * game.spawn_rate_multiplier
 	}
 }
 
@@ -185,12 +352,12 @@ update_enemies :: proc(dt: f32) {
 		dir := vec2_normalize(vec2_sub(p.pos, e.pos))
 		e.pos = vec2_add(e.pos, vec2_scale(dir, e.speed * dt))
 
-		if p.invuln_timer <= 0 && vec2_dist(e.pos, p.pos) < ENEMY_RADIUS + PLAYER_RADIUS {
-			p.health -= PLAYER_CONTACT_DMG
+		if p.invuln_timer <= 0 && vec2_dist(e.pos, p.pos) < e.radius + PLAYER_RADIUS {
+			p.health -= f32(game.enemy_contact_damage)
 			p.invuln_timer = PLAYER_INVULN_TIME
 
 			push := vec2_normalize(vec2_sub(p.pos, e.pos))
-			p.pos = vec2_add(p.pos, vec2_scale(push, KNOCKBACK * dt))
+			p.pos = vec2_add(p.pos, vec2_scale(push, KNOCKBACK * game.enemy_knockback * dt))
 			e.pos = vec2_sub(e.pos, vec2_scale(push, KNOCKBACK * dt * 0.5))
 
 			if p.health <= 0 {
@@ -218,12 +385,31 @@ handle_collisions :: proc() {
 		for ei in 0 ..< len(game.enemies) {
 			e := &game.enemies[ei]
 			if !e.alive do continue
-			if vec2_dist(b.pos, e.pos) < BULLET_RADIUS + ENEMY_RADIUS {
-				b.alive = false
-				e.health -= 1
+			if vec2_dist(b.pos, e.pos) < BULLET_RADIUS + e.radius {
+				b.hits_left -= 1
+				if b.hits_left <= 0 do b.alive = false
+				e.health -= b.damage
 				if e.health <= 0 {
+					death_pos := e.pos
+					death_speed := e.speed
+					was_splitter := e.splitter
 					e.alive = false
 					game.kills += 1
+					game.player.health = min(game.player.max_health, game.player.health + game.player.kill_heal)
+					if was_splitter {
+						for split in 0..<2 {
+							offset := f32(split * 2 - 1) * 12
+							append(&game.enemies, Enemy{
+								pos = Vec2{death_pos.x + offset, death_pos.y},
+								speed = death_speed * 1.2,
+								health = 1,
+								radius = 9,
+								boss = false,
+								splitter = false,
+								alive = true,
+							})
+						}
+					}
 				}
 				break
 			}
@@ -235,6 +421,15 @@ handle_collisions :: proc() {
 	}
 	for i := len(game.enemies) - 1; i >= 0; i -= 1 {
 		if !game.enemies[i].alive do unordered_remove(&game.enemies, i)
+	}
+
+	if game.state == .Playing && game.room_spawned >= game.room_enemy_target && len(game.enemies) == 0 {
+		game.xp += ROOM_XP
+		if game.room == FINAL_ROOM {
+			game.state = .Victory
+		} else {
+			begin_level_up()
+		}
 	}
 }
 
@@ -264,9 +459,15 @@ draw_player :: proc() {
 draw_enemies :: proc() {
 	for e in game.enemies {
 		col := rl.RED
-		if e.health >= 2 do col = rl.ORANGE
-		if e.health >= 4 do col = rl.GREEN
-		rl.DrawCircleV(e.pos, ENEMY_RADIUS, col)
+		if e.boss {
+			col = rl.PURPLE
+			rl.DrawCircleV(e.pos, e.radius, col)
+			rl.DrawCircleLinesV(e.pos, e.radius + 4, rl.YELLOW)
+		} else {
+			if e.health >= 2 do col = rl.ORANGE
+			if e.health >= 4 do col = rl.GREEN
+			rl.DrawCircleV(e.pos, e.radius, col)
+		}
 	}
 }
 
@@ -279,16 +480,61 @@ draw_bullets :: proc() {
 draw_hud :: proc() {
 	// health bar
 	bar_w := f32(240)
-	pct := max(game.player.health, 0) / PLAYER_MAX_HEALTH
+	pct := max(game.player.health, 0) / game.player.max_health
 	rl.DrawRectangle(20, 20, i32(bar_w), 22, rl.Color{50, 50, 50, 255})
 	rl.DrawRectangle(20, 20, i32(bar_w * pct), 22, rl.GREEN)
 	rl.DrawRectangleLines(20, 20, i32(bar_w), 22, rl.WHITE)
-	rl.DrawText(fmt.ctprintf("HP %d/%d", int(game.player.health), PLAYER_MAX_HEALTH), 26, 24, 16, rl.WHITE)
+	rl.DrawText(fmt.ctprintf("HP %d/%d", int(game.player.health), int(game.player.max_health)), 26, 24, 16, rl.WHITE)
 
 	score := game.kills * 10 + int(game.elapsed)
 	rl.DrawText(fmt.ctprintf("Score: %d", score), SCREEN_W - 180, 20, 22, rl.WHITE)
 	rl.DrawText(fmt.ctprintf("Time: %.1fs", game.elapsed), SCREEN_W - 180, 48, 18, rl.LIGHTGRAY)
 	rl.DrawText(fmt.ctprintf("Kills: %d", game.kills), SCREEN_W - 180, 70, 18, rl.LIGHTGRAY)
+	rl.DrawText(fmt.ctprintf("Level %d  Room XP %d", game.level, game.xp), 20, 52, 18, rl.LIGHTGRAY)
+	room_label := fmt.ctprintf("Room %d/%d", game.room, FINAL_ROOM)
+	if game.room == FINAL_ROOM do room_label = cstring("FINAL ROOM - BOSS")
+	rl.DrawText(room_label, SCREEN_W / 2 - rl.MeasureText(room_label, 20) / 2, 20, 20, rl.YELLOW)
+}
+
+draw_room_clear :: proc() {
+	rl.DrawRectangle(0, 0, SCREEN_W, SCREEN_H, rl.Color{8, 10, 18, 220})
+	title := cstring("ROOM CLEARED")
+	title_w := rl.MeasureText(title, 52)
+	rl.DrawText(title, SCREEN_W / 2 - title_w / 2, 190, 52, rl.GREEN)
+	sub := fmt.ctprintf("Room XP +%d   |   Total room XP %d", ROOM_XP, game.xp)
+	sub_w := rl.MeasureText(sub, 22)
+	rl.DrawText(sub, SCREEN_W / 2 - sub_w / 2, 280, 22, rl.WHITE)
+	hint := cstring("Press ENTER to enter the next room")
+	hint_w := rl.MeasureText(hint, 22)
+	rl.DrawText(hint, SCREEN_W / 2 - hint_w / 2, 360, 22, rl.LIGHTGRAY)
+}
+
+draw_upgrade_screen :: proc() {
+	rl.DrawRectangle(0, 0, SCREEN_W, SCREEN_H, rl.Color{8, 10, 18, 220})
+	title := cstring("LEVEL UP")
+	if game.state == .Enemy_Upgrade do title = cstring("THE ENEMIES GROW")
+	title_w := rl.MeasureText(title, 42)
+	rl.DrawText(title, SCREEN_W / 2 - title_w / 2, 120, 42, rl.WHITE)
+	subtitle := cstring("Choose one upgrade")
+	if game.state == .Enemy_Upgrade do subtitle = cstring("Choose the enemy upgrade you can handle")
+	subtitle_w := rl.MeasureText(subtitle, 20)
+	rl.DrawText(subtitle, SCREEN_W / 2 - subtitle_w / 2, 175, 20, rl.LIGHTGRAY)
+
+	mouse := rl.GetMousePosition()
+	for i in 0..<3 {
+		x := i32(170 + i * 320)
+		hovered := mouse.x >= f32(x) && mouse.x <= f32(x + 260) && mouse.y >= 240 && mouse.y <= 480
+		fill := rl.Color{35, 42, 62, 255}
+		if game.state == .Enemy_Upgrade do fill = rl.Color{58, 38, 42, 255}
+		if hovered do fill = rl.Color{65, 78, 108, 255}
+		rl.DrawRectangle(x, 240, 260, 240, fill)
+		rl.DrawRectangleLines(x, 240, 260, 240, rl.Color{130, 150, 190, 255})
+		card := game.upgrade_cards[i]
+		card_w := rl.MeasureText(card.title, 25)
+		rl.DrawText(card.title, x + 130 - card_w / 2, 285, 25, rl.YELLOW)
+		rl.DrawText(card.description, x + 18, 350, 18, rl.WHITE)
+		rl.DrawText(fmt.ctprintf("CARD %d", i + 1), x + 18, 445, 16, rl.LIGHTGRAY)
+	}
 }
 
 draw_game_over :: proc() {
@@ -307,6 +553,19 @@ draw_game_over :: proc() {
 	hint := cstring("Press R to play again")
 	hint_w := rl.MeasureText(hint, 20)
 	rl.DrawText(hint, SCREEN_W / 2 - hint_w / 2, SCREEN_H / 2 + 40, 20, rl.LIGHTGRAY)
+}
+
+draw_victory :: proc() {
+	rl.DrawRectangle(0, 0, SCREEN_W, SCREEN_H, rl.Color{8, 10, 18, 235})
+	title := cstring("DUNGEON CLEARED")
+	title_w := rl.MeasureText(title, 56)
+	rl.DrawText(title, SCREEN_W / 2 - title_w / 2, SCREEN_H / 2 - 100, 56, rl.YELLOW)
+	sub := fmt.ctprintf("Boss defeated  -  Score %d", game.kills * 10 + int(game.elapsed))
+	sub_w := rl.MeasureText(sub, 24)
+	rl.DrawText(sub, SCREEN_W / 2 - sub_w / 2, SCREEN_H / 2 - 10, 24, rl.WHITE)
+	hint := cstring("Press R to play again")
+	hint_w := rl.MeasureText(hint, 20)
+	rl.DrawText(hint, SCREEN_W / 2 - hint_w / 2, SCREEN_H / 2 + 50, 20, rl.LIGHTGRAY)
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +588,10 @@ main :: proc() {
 			update_enemies(dt)
 			update_bullets(dt)
 			handle_collisions()
+		} else if game.state == .Player_Upgrade || game.state == .Enemy_Upgrade {
+			handle_upgrade_input()
+		} else if game.state == .Room_Clear {
+			if rl.IsKeyPressed(.ENTER) do start_next_room()
 		} else {
 			if rl.IsKeyPressed(.R) do init_game()
 		}
@@ -341,7 +604,10 @@ main :: proc() {
 		draw_enemies()
 		draw_player()
 		draw_hud()
+		if game.state == .Room_Clear do draw_room_clear()
+		if game.state == .Player_Upgrade || game.state == .Enemy_Upgrade do draw_upgrade_screen()
 		if game.state == .Game_Over do draw_game_over()
+		if game.state == .Victory do draw_victory()
 
 		rl.EndDrawing()
 	}
