@@ -18,7 +18,6 @@ PLAYER_CONTACT_DMG   :: 15
 
 BULLET_RADIUS   :: 5
 BULLET_SPEED    :: 640
-FIRE_COOLDOWN   :: 0.14
 
 ENEMY_RADIUS       :: 14
 SPAWN_INTERVAL_MAX :: 1.2
@@ -26,6 +25,7 @@ SPAWN_INTERVAL_MIN :: 0.25
 FINAL_ROOM        :: ROOM_COUNT
 
 KNOCKBACK :: 900
+ALLY_ATTACK_COOLDOWN :: f32(0.5)
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,18 +43,29 @@ Player :: struct {
 	bullet_count:  int,
 	bullet_spread: f32,
 	piercing:      int,
+	ricochets:     int,
+	necromancer_chance: f32,
 	kill_heal:     f32,
 	invuln_timer: f32,
 	fire_timer:   f32,
 }
 
 Enemy :: struct {
+	id:     int,
 	pos:    Vec2,
 	speed:  f32,
 	health: int,
+	max_health: int,
 	radius: f32,
 	boss:   bool,
-	splitter: bool,
+	attack_timer: f32,
+	attack_pattern: int,
+	split_count: int,
+	armor:  int,
+	ranged_level: int,
+	spawn_timer: f32,
+	ally_timer: f32,
+	ally:   bool,
 	alive:  bool,
 }
 
@@ -63,14 +74,17 @@ Bullet :: struct {
 	vel:   Vec2,
 	damage: int,
 	hits_left: int,
+	hit_enemy_ids: [dynamic]int,
+	ricochets_left: int,
+	hostile: bool,
 	alive: bool,
 }
 
 Game_State :: enum { Playing, Room_Clear, Player_Upgrade, Enemy_Upgrade, Game_Over, Victory }
 
 Upgrade_Type :: enum {
-	Player_Speed, Rapid_Fire, Heavy_Bullets, Max_Health, Heal, Multi_Shot, Piercing, Vampire,
-	Enemy_Haste, Enemy_Armor, Enemy_Swarm, Enemy_Frenzy, Enemy_Elite, Enemy_Splitter, Enemy_Bloodlust, Enemy_Thorns,
+	Player_Speed, Rapid_Fire, Heavy_Bullets, Max_Health, Heal, Multi_Shot, Piercing, Vampire, Ricochet, Necromancer,
+	Enemy_Haste, Enemy_Armor, Enemy_Swarm, Enemy_Frenzy, Enemy_Elite, Enemy_Splitter, Enemy_Bloodlust, Enemy_Thorns, Enemy_Ranged, Enemy_Shields,
 }
 
 Upgrade_Card :: struct {
@@ -85,6 +99,8 @@ Upgrade_Card :: struct {
 	bullet_count: int,
 	spread: f32,
 	piercing: int,
+	ricochets: int,
+	necromancer_chance: f32,
 	kill_heal: f32,
 	enemy_speed: f32,
 	enemy_health: int,
@@ -92,6 +108,8 @@ Upgrade_Card :: struct {
 	contact_damage: int,
 	splitter: bool,
 	knockback: f32,
+	ranged: bool,
+	armor: int,
 }
 
 Game :: struct {
@@ -112,8 +130,13 @@ Game :: struct {
 	enemy_health_bonus: int,
 	spawn_rate_multiplier: f32,
 	enemy_contact_damage: int,
-	enemy_splitter: bool,
+	enemy_splitter: int,
 	enemy_knockback: f32,
+	enemy_ranged: bool,
+	enemy_ranged_level: int,
+	enemy_armor: int,
+	next_enemy_id: int,
+	final_reinforcement_timer: f32,
 	upgrade_cards: [3]Upgrade_Card,
 }
 
@@ -176,8 +199,13 @@ init_game :: proc() {
 	game.enemy_health_bonus = 0
 	game.spawn_rate_multiplier = 1
 	game.enemy_contact_damage = ENEMY_CONTACT_DAMAGE
-	game.enemy_splitter = false
+	game.enemy_splitter = 0
 	game.enemy_knockback = 1
+	game.enemy_ranged = false
+	game.enemy_ranged_level = 0
+	game.enemy_armor = 0
+	game.next_enemy_id = 1
+	game.final_reinforcement_timer = FINAL_REINFORCEMENT_INTERVAL
 	start_room()
 	game.state = .Playing
 }
@@ -189,6 +217,7 @@ start_room :: proc() {
 	game.room_enemy_target = ROOM_FIRST_ENEMY_COUNT + game.room * ROOM_ENEMIES_PER_ROOM
 	if game.room == FINAL_ROOM do game.room_enemy_target = 1
 	game.spawn_timer = 0.5
+	game.final_reinforcement_timer = FINAL_REINFORCEMENT_INTERVAL
 	game.elapsed = 0
 	game.player.pos = Vec2{SCREEN_W / 2, SCREEN_H / 2}
 }
@@ -200,10 +229,18 @@ start_next_room :: proc() {
 }
 
 make_upgrade_cards :: proc(enemy: bool) {
-	pool := PLAYER_UPGRADE_POOL
-	pool_size := 8
+	player_pool := PLAYER_UPGRADE_POOL
+	enemy_pool := ENEMY_UPGRADE_POOL
+	pool: [8]Upgrade_Card
+	pool_size := 6
+	for i in 0..<pool_size {
+		pool[i] = player_pool[i]
+	}
 	if enemy {
-		pool = ENEMY_UPGRADE_POOL
+		pool_size = 6
+		for i in 0..<pool_size {
+			pool[i] = enemy_pool[i]
+		}
 	}
 	used: [8]bool
 	for i in 0..<3 {
@@ -227,16 +264,29 @@ apply_upgrade :: proc(card: Upgrade_Card) {
 	game.player.max_health += card.max_health
 	game.player.health += card.max_health
 	game.player.health = min(game.player.max_health, game.player.health + card.heal)
-	if card.bullet_count > 0 do game.player.bullet_count = card.bullet_count
+	if card.bullet_count > 0 {
+		if game.player.bullet_count == 1 {
+			game.player.bullet_count = card.bullet_count
+		} else {
+			game.player.bullet_count += card.bullet_count
+		}
+	}
 	game.player.bullet_spread = max(game.player.bullet_spread, card.spread)
 	game.player.piercing += card.piercing
+	game.player.ricochets += card.ricochets
+	game.player.necromancer_chance = min(1, game.player.necromancer_chance + card.necromancer_chance)
 	game.player.kill_heal += card.kill_heal
 	game.enemy_speed_bonus += card.enemy_speed
 	game.enemy_health_bonus += card.enemy_health
 	if card.spawn_rate > 0 do game.spawn_rate_multiplier *= card.spawn_rate
 	game.enemy_contact_damage += card.contact_damage
-	if card.splitter do game.enemy_splitter = true
+	if card.splitter do game.enemy_splitter += 1
 	game.enemy_knockback += card.knockback
+	if card.ranged {
+		game.enemy_ranged = true
+		game.enemy_ranged_level += 1
+	}
+	game.enemy_armor += card.armor
 }
 
 handle_upgrade_input :: proc() {
@@ -268,6 +318,8 @@ spawn_enemy :: proc() {
 	}
 
 	boss := game.room == FINAL_ROOM
+	enemy_id := game.next_enemy_id
+	game.next_enemy_id += 1
 	speed := min(ENEMY_BASE_SPEED + f32(game.room) * 10, ENEMY_MAX_SPEED) * (1 + game.enemy_speed_bonus)
 	health := ENEMY_ROOM_HEALTH + game.room * ENEMY_HEALTH_PER_ROOM + game.enemy_health_bonus
 	radius := f32(ENEMY_RADIUS)
@@ -278,15 +330,44 @@ spawn_enemy :: proc() {
 	}
 
 	append(&game.enemies, Enemy{
+		id = enemy_id,
 		pos = pos,
 		speed = speed,
 		health = health,
+		max_health = health,
 		radius = radius,
 		boss = boss,
-		splitter = game.enemy_splitter && !boss,
+		attack_timer = ENEMY_BOSS_AIMED_COOLDOWN,
+		attack_pattern = 0,
+		split_count = game.enemy_splitter,
+		armor = game.enemy_armor,
+		ranged_level = game.enemy_ranged_level * int(!boss),
+		spawn_timer = 0,
 		alive = true,
 	})
 	game.room_spawned += 1
+}
+
+spawn_final_reinforcement :: proc() {
+	pos := Vec2{rand_range(80, SCREEN_W - 80), 70}
+	enemy_id := game.next_enemy_id
+	game.next_enemy_id += 1
+	append(&game.enemies, Enemy{
+		id = enemy_id,
+		pos = pos,
+		speed = ENEMY_BASE_SPEED,
+		health = 1,
+		max_health = 1,
+		radius = ENEMY_RADIUS,
+		boss = false,
+		attack_timer = ENEMY_MINION_SHOT_COOLDOWN,
+		attack_pattern = 0,
+		split_count = 0,
+		armor = 0,
+		ranged_level = 0,
+		spawn_timer = ENEMY_DROP_TIME,
+		alive = true,
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -325,16 +406,85 @@ update_player :: proc(dt: f32) {
 					vel       = vec2_scale(shot_aim, BULLET_SPEED),
 					damage    = p.bullet_damage,
 					hits_left = p.piercing + 1,
+					ricochets_left = p.ricochets,
+					hostile   = false,
 					alive     = true,
 				})
 			}
-			p.fire_timer = FIRE_COOLDOWN
+			p.fire_timer = p.fire_cooldown
 		}
 	}
 }
 
+fire_boss_pattern :: proc(e: ^Enemy, player_pos: Vec2) {
+	aim := vec2_normalize(vec2_sub(player_pos, e.pos))
+	if e.attack_pattern == 0 {
+		for shot in 0..<3 {
+			angle := (f32(shot) - 1) * 0.24
+			append(&game.bullets, Bullet{
+				pos = e.pos,
+				vel = vec2_scale(vec2_rotate(aim, angle), ENEMY_BOSS_SHOT_SPEED),
+				damage = ENEMY_BOSS_SHOT_DAMAGE,
+				hits_left = 1,
+				hostile = true,
+				alive = true,
+			})
+		}
+		e.attack_timer = ENEMY_BOSS_AIMED_COOLDOWN
+		e.attack_pattern = 1
+	} else {
+		for shot in 0..<8 {
+			angle := f32(shot) * math.PI * 2 / 8
+			append(&game.bullets, Bullet{
+				pos = e.pos,
+				vel = vec2_scale(Vec2{math.cos(angle), math.sin(angle)}, ENEMY_BOSS_SHOT_SPEED * 0.85),
+				damage = ENEMY_BOSS_SHOT_DAMAGE,
+				hits_left = 1,
+				hostile = true,
+				alive = true,
+			})
+		}
+		e.attack_timer = ENEMY_BOSS_RADIAL_COOLDOWN
+		e.attack_pattern = 0
+	}
+}
+
+fire_enemy_shot :: proc(e: ^Enemy, player_pos: Vec2) {
+	aim := vec2_normalize(vec2_sub(player_pos, e.pos))
+	for shot in 0..<e.ranged_level {
+		center := f32(e.ranged_level - 1) / 2
+		angle := (f32(shot) - center) * 0.2
+		append(&game.bullets, Bullet{
+			pos = e.pos,
+			vel = vec2_scale(vec2_rotate(aim, angle), ENEMY_MINION_SHOT_SPEED),
+			damage = ENEMY_MINION_SHOT_DAMAGE,
+			hits_left = 1,
+			hostile = true,
+			alive = true,
+		})
+	}
+	e.attack_timer = ENEMY_MINION_SHOT_COOLDOWN
+}
+
 update_spawning :: proc(dt: f32) {
 	game.elapsed += dt
+	if game.room == FINAL_ROOM {
+		boss_present := false
+		for e in game.enemies {
+			if e.alive && e.boss {
+				boss_present = true
+				break
+			}
+		}
+		if boss_present {
+			game.final_reinforcement_timer -= dt
+			if game.final_reinforcement_timer <= 0 {
+				spawn_final_reinforcement()
+				game.final_reinforcement_timer = FINAL_REINFORCEMENT_INTERVAL
+			}
+		}
+		return
+	}
 	if game.room_spawned >= game.room_enemy_target do return
 	game.spawn_timer -= dt
 	if game.spawn_timer <= 0 {
@@ -348,9 +498,50 @@ update_enemies :: proc(dt: f32) {
 	for i in 0 ..< len(game.enemies) {
 		e := &game.enemies[i]
 		if !e.alive do continue
+		if e.spawn_timer > 0 {
+			e.spawn_timer -= dt
+			continue
+		}
+		if e.ally {
+			e.ally_timer -= dt
+			if e.ally_timer <= 0 {
+				e.alive = false
+				continue
+			}
+			target_index := -1
+			target_distance := f32(1000000)
+			for target_i in 0 ..< len(game.enemies) {
+				target := &game.enemies[target_i]
+				if !target.alive || target.ally || target_i == i do continue
+				distance := vec2_dist(e.pos, target.pos)
+				if distance < target_distance {
+					target_index = target_i
+					target_distance = distance
+				}
+			}
+			if target_index >= 0 {
+				target := &game.enemies[target_index]
+				dir := vec2_normalize(vec2_sub(target.pos, e.pos))
+				e.pos = vec2_add(e.pos, vec2_scale(dir, e.speed * dt))
+				e.attack_timer -= dt
+				if target_distance < e.radius + target.radius + 4 && e.attack_timer <= 0 {
+					target.health -= 1
+					e.attack_timer = ALLY_ATTACK_COOLDOWN
+					if target.health <= 0 do target.alive = false
+				}
+			}
+			continue
+		}
 
 		dir := vec2_normalize(vec2_sub(p.pos, e.pos))
 		e.pos = vec2_add(e.pos, vec2_scale(dir, e.speed * dt))
+		if e.boss {
+			e.attack_timer -= dt
+			if e.attack_timer <= 0 do fire_boss_pattern(e, p.pos)
+		} else if e.ranged_level > 0 {
+			e.attack_timer -= dt
+			if e.attack_timer <= 0 do fire_enemy_shot(e, p.pos)
+		}
 
 		if p.invuln_timer <= 0 && vec2_dist(e.pos, p.pos) < e.radius + PLAYER_RADIUS {
 			p.health -= f32(game.enemy_contact_damage)
@@ -369,49 +560,124 @@ update_enemies :: proc(dt: f32) {
 }
 
 update_bullets :: proc(dt: f32) {
+	p := &game.player
 	for i in 0 ..< len(game.bullets) {
 		b := &game.bullets[i]
 		b.pos = vec2_add(b.pos, vec2_scale(b.vel, dt))
+		if b.hostile && p.invuln_timer <= 0 && vec2_dist(b.pos, p.pos) < BULLET_RADIUS + PLAYER_RADIUS {
+			p.health -= f32(b.damage)
+			p.invuln_timer = PLAYER_INVULN_TIME
+			b.alive = false
+			if p.health <= 0 {
+				p.health = 0
+				game.state = .Game_Over
+			}
+		}
 		if b.pos.x < -20 || b.pos.x > SCREEN_W + 20 || b.pos.y < -20 || b.pos.y > SCREEN_H + 20 {
 			b.alive = false
 		}
 	}
 }
 
+retarget_ricochet :: proc(b: ^Bullet) {
+	best_index := -1
+	best_distance := f32(1000000)
+	for i in 0 ..< len(game.enemies) {
+		e := &game.enemies[i]
+		if !e.alive || e.ally do continue
+		already_hit := false
+		for hit_id in b.hit_enemy_ids {
+			if hit_id == e.id {
+				already_hit = true
+				break
+			}
+		}
+		if already_hit do continue
+		distance := vec2_dist(b.pos, e.pos)
+		if distance < best_distance {
+			best_index = i
+			best_distance = distance
+		}
+	}
+	if best_index >= 0 {
+		target := &game.enemies[best_index]
+		b.vel = vec2_scale(vec2_normalize(vec2_sub(target.pos, b.pos)), BULLET_SPEED)
+		b.ricochets_left -= 1
+	} else if b.hits_left <= 0 {
+		b.alive = false
+	}
+}
+
 handle_collisions :: proc() {
 	for bi in 0 ..< len(game.bullets) {
 		b := &game.bullets[bi]
-		if !b.alive do continue
+		if !b.alive || b.hostile do continue
 		for ei in 0 ..< len(game.enemies) {
 			e := &game.enemies[ei]
-			if !e.alive do continue
+			if !e.alive || e.ally do continue
+			already_hit := false
+			for hit_id in b.hit_enemy_ids {
+				if hit_id == e.id {
+					already_hit = true
+					break
+				}
+			}
+			if already_hit do continue
 			if vec2_dist(b.pos, e.pos) < BULLET_RADIUS + e.radius {
+				append(&b.hit_enemy_ids, e.id)
 				b.hits_left -= 1
 				if b.hits_left <= 0 do b.alive = false
-				e.health -= b.damage
+				e.health -= max(1, b.damage - e.armor)
 				if e.health <= 0 {
-					death_pos := e.pos
-					death_speed := e.speed
-					was_splitter := e.splitter
-					e.alive = false
-					game.kills += 1
-					game.player.health = min(game.player.max_health, game.player.health + game.player.kill_heal)
-					if was_splitter {
-						for split in 0..<2 {
-							offset := f32(split * 2 - 1) * 12
-							append(&game.enemies, Enemy{
-								pos = Vec2{death_pos.x + offset, death_pos.y},
-								speed = death_speed * 1.2,
-								health = 1,
-								radius = 9,
-								boss = false,
-								splitter = false,
-								alive = true,
-							})
+					if !e.boss && rand.float32() < game.player.necromancer_chance {
+						e.ally = true
+						e.boss = false
+						e.health = 1
+						e.max_health = 1
+						e.split_count = 0
+						e.attack_timer = 0
+						e.ally_timer = NECROMANCER_ALLY_LIFESPAN
+					} else {
+						death_pos := e.pos
+						death_speed := e.speed
+						was_boss := e.boss
+						split_count := e.split_count
+						e.alive = false
+						game.kills += 1
+						game.player.health = min(game.player.max_health, game.player.health + game.player.kill_heal)
+						if split_count > 0 {
+							child_count := split_count * 2
+							for split in 0..<child_count {
+								offset := (f32(split) - f32(child_count - 1) / 2) * 12
+								child_health := 1
+								child_radius := f32(9)
+								if was_boss {
+									child_health = max(1, e.max_health / 2)
+									child_radius = 34
+								}
+								append(&game.enemies, Enemy{
+									id = game.next_enemy_id,
+									pos = Vec2{death_pos.x + offset, death_pos.y},
+									speed = death_speed * 1.2,
+									health = child_health,
+									max_health = child_health,
+									radius = child_radius,
+									boss = was_boss,
+									attack_timer = ENEMY_BOSS_AIMED_COOLDOWN,
+									attack_pattern = 0,
+									split_count = 0,
+									armor = game.enemy_armor,
+									ranged_level = game.enemy_ranged_level * int(!was_boss),
+									spawn_timer = 0,
+									alive = true,
+								})
+								game.next_enemy_id += 1
+							}
 						}
 					}
 				}
-				break
+				if b.alive && b.ricochets_left > 0 do retarget_ricochet(b)
+				if !b.alive do break
 			}
 		}
 	}
@@ -458,22 +724,46 @@ draw_player :: proc() {
 
 draw_enemies :: proc() {
 	for e in game.enemies {
+		if e.spawn_timer > 0 {
+			progress := 1 - e.spawn_timer / ENEMY_DROP_TIME
+			beam_top := Vec2{e.pos.x, 20}
+			rl.DrawLineV(beam_top, e.pos, rl.Color{255, 240, 150, 90})
+			rl.DrawCircleV(e.pos, e.radius * (0.5 + progress * 0.5), rl.Color{255, 100, 100, 220})
+			rl.DrawCircleLinesV(e.pos, e.radius + 5 + progress * 8, rl.Color{255, 245, 170, 180})
+			continue
+		}
+		if e.ally {
+			rl.DrawCircleV(e.pos, e.radius, rl.LIME)
+			rl.DrawCircleLinesV(e.pos, e.radius + 3, rl.SKYBLUE)
+			continue
+		}
 		col := rl.RED
 		if e.boss {
 			col = rl.PURPLE
 			rl.DrawCircleV(e.pos, e.radius, col)
 			rl.DrawCircleLinesV(e.pos, e.radius + 4, rl.YELLOW)
+			bar_w := f32(150)
+			bar_x := e.pos.x - bar_w / 2
+			bar_y := e.pos.y - e.radius - 18
+			pct := max(f32(e.health), 0) / f32(e.max_health)
+			rl.DrawRectangle(i32(bar_x), i32(bar_y), i32(bar_w), 10, rl.Color{45, 25, 35, 255})
+			rl.DrawRectangle(i32(bar_x), i32(bar_y), i32(bar_w * pct), 10, rl.RED)
+			rl.DrawRectangleLines(i32(bar_x), i32(bar_y), i32(bar_w), 10, rl.WHITE)
 		} else {
 			if e.health >= 2 do col = rl.ORANGE
 			if e.health >= 4 do col = rl.GREEN
 			rl.DrawCircleV(e.pos, e.radius, col)
+			if e.ranged_level > 0 do rl.DrawCircleLinesV(e.pos, e.radius + 2, rl.SKYBLUE)
+			if e.armor > 0 do rl.DrawCircleLinesV(e.pos, e.radius + 4, rl.LIGHTGRAY)
 		}
 	}
 }
 
 draw_bullets :: proc() {
 	for b in game.bullets {
-		rl.DrawCircleV(b.pos, BULLET_RADIUS, rl.YELLOW)
+		col := rl.YELLOW
+		if b.hostile do col = rl.RED
+		rl.DrawCircleV(b.pos, BULLET_RADIUS, col)
 	}
 }
 
