@@ -21,6 +21,19 @@ ENEMY_BOSS_RADIAL_COOLDOWN :: f32(3.6)
 ENEMY_MINION_SHOT_SPEED :: f32(180)
 ENEMY_MINION_SHOT_DAMAGE :: 8
 ENEMY_MINION_SHOT_COOLDOWN :: f32(2.8)
+ENEMY_CHARGER_TELEGRAPH :: f32(0.9)
+ENEMY_CHARGER_DASH_TIME :: f32(0.45)
+ENEMY_CHARGER_DASH_SPEED :: f32(620)
+ENEMY_CHARGER_COOLDOWN :: f32(1.0)
+ENEMY_CHARGER_APPROACH_SPEED :: f32(55)
+ENEMY_CHARGER_MIN_DASH_RANGE :: f32(120)
+ENEMY_CHARGER_MAX_DASH_RANGE :: f32(240)
+ENEMY_CHARGER_OVERSHOOT :: f32(60)
+ENEMY_RANGED_DISTANCE :: f32(280)
+ENEMY_RANGED_SPEED :: f32(95)
+ENEMY_RANGED_SHOT_COOLDOWN :: f32(1.2)
+ENEMY_RANGED_SHOT_SPEED :: f32(240)
+ENEMY_RANGED_SHOT_DAMAGE :: 7
 FINAL_REINFORCEMENT_INTERVAL :: f32(4.5)
 ENEMY_DROP_TIME :: f32(0.9)
 NECROMANCER_ALLY_LIFESPAN :: f32(30)
@@ -43,7 +56,7 @@ ENEMY_UPGRADE_POOL :: [6]Upgrade_Card{
 	{title = "SWARM", description = "Enemies spawn 20% faster", kind = .Enemy_Swarm, spawn_rate = 0.8},
 	{title = "SPLITTERS", description = "Normal enemies split on death", kind = .Enemy_Splitter, splitter = true},
 	{title = "BLOODLUST", description = "Enemy contact damage +5", kind = .Enemy_Bloodlust, contact_damage = 5},
-	{title = "THORNS", description = "Collisions knock you back harder", kind = .Enemy_Thorns, knockback = 0.5},
+	{title = "THORNS", description = "Collisions knock you back harder", kind = .Enemy_Thorns, knockback = 5.0},
 	{title = "RANGED MINIONS", description = "Normal enemies fire at you", kind = .Enemy_Ranged, ranged = true},
 	{title = "SHIELDS", description = "Enemies reduce bullet damage by 1", kind = .Enemy_Shields, armor = 1},
 }

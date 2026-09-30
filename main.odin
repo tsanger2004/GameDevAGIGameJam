@@ -52,6 +52,7 @@ Player :: struct {
 
 Enemy :: struct {
 	id:     int,
+	type:   Enemy_Type,
 	pos:    Vec2,
 	speed:  f32,
 	health: int,
@@ -60,6 +61,8 @@ Enemy :: struct {
 	boss:   bool,
 	attack_timer: f32,
 	attack_pattern: int,
+	state_timer: f32,
+	dash_dir: Vec2,
 	split_count: int,
 	armor:  int,
 	ranged_level: int,
@@ -67,6 +70,13 @@ Enemy :: struct {
 	ally_timer: f32,
 	ally:   bool,
 	alive:  bool,
+}
+
+Enemy_Type :: enum {
+	Normal,
+	Charger,
+	Ranged,
+	Boss,
 }
 
 Bullet :: struct {
@@ -80,7 +90,7 @@ Bullet :: struct {
 	alive: bool,
 }
 
-Game_State :: enum { Playing, Room_Clear, Player_Upgrade, Enemy_Upgrade, Game_Over, Victory }
+Game_State :: enum { Title, Playing, Room_Clear, Player_Upgrade, Enemy_Upgrade, Game_Over, Victory }
 
 Upgrade_Type :: enum {
 	Player_Speed, Rapid_Fire, Heavy_Bullets, Max_Health, Heal, Multi_Shot, Piercing, Vampire, Ricochet, Necromancer,
@@ -311,18 +321,35 @@ spawn_enemy :: proc() {
 	side := int(rand.float32() * 4)
 	pos: Vec2
 	switch side {
-	case 0: pos = Vec2{rand_range(0, SCREEN_W), -ENEMY_RADIUS}            // top
-	case 1: pos = Vec2{SCREEN_W + ENEMY_RADIUS, rand_range(0, SCREEN_H)}  // right
-	case 2: pos = Vec2{rand_range(0, SCREEN_W), SCREEN_H + ENEMY_RADIUS}  // bottom
-	case:   pos = Vec2{-ENEMY_RADIUS, rand_range(0, SCREEN_H)}            // left
+	case 0: pos = Vec2{rand_range(ENEMY_RADIUS, SCREEN_W - ENEMY_RADIUS), ENEMY_RADIUS}            // top
+	case 1: pos = Vec2{SCREEN_W - ENEMY_RADIUS, rand_range(ENEMY_RADIUS, SCREEN_H - ENEMY_RADIUS)}  // right
+	case 2: pos = Vec2{rand_range(ENEMY_RADIUS, SCREEN_W - ENEMY_RADIUS), SCREEN_H - ENEMY_RADIUS}  // bottom
+	case:   pos = Vec2{ENEMY_RADIUS, rand_range(ENEMY_RADIUS, SCREEN_H - ENEMY_RADIUS)}            // left
 	}
 
 	boss := game.room == FINAL_ROOM
+	enemy_type := Enemy_Type.Normal
+	if !boss {
+		roll := rand.float32()
+		if game.room_spawned % 5 == 0 || roll < 0.2 {
+			enemy_type = .Charger
+		} else if game.room_spawned % 5 == 1 || roll < 0.4 {
+			enemy_type = .Ranged
+		}
+	}
 	enemy_id := game.next_enemy_id
 	game.next_enemy_id += 1
 	speed := min(ENEMY_BASE_SPEED + f32(game.room) * 10, ENEMY_MAX_SPEED) * (1 + game.enemy_speed_bonus)
 	health := ENEMY_ROOM_HEALTH + game.room * ENEMY_HEALTH_PER_ROOM + game.enemy_health_bonus
 	radius := f32(ENEMY_RADIUS)
+	state_timer := f32(0)
+	attack_timer := ENEMY_BOSS_AIMED_COOLDOWN
+	if enemy_type == .Charger {
+		attack_timer = ENEMY_CHARGER_COOLDOWN
+	} else if enemy_type == .Ranged {
+		speed = ENEMY_RANGED_SPEED
+		attack_timer = ENEMY_RANGED_SHOT_COOLDOWN
+	}
 	if boss {
 		speed = ENEMY_BOSS_SPEED * (1 + game.enemy_speed_bonus)
 		health = ENEMY_BOSS_HEALTH + game.enemy_health_bonus * 2
@@ -331,14 +358,17 @@ spawn_enemy :: proc() {
 
 	append(&game.enemies, Enemy{
 		id = enemy_id,
+		type = .Boss if boss else enemy_type,
 		pos = pos,
 		speed = speed,
 		health = health,
 		max_health = health,
 		radius = radius,
 		boss = boss,
-		attack_timer = ENEMY_BOSS_AIMED_COOLDOWN,
+		attack_timer = attack_timer,
 		attack_pattern = 0,
+		state_timer = state_timer,
+		dash_dir = Vec2{0, 0},
 		split_count = game.enemy_splitter,
 		armor = game.enemy_armor,
 		ranged_level = game.enemy_ranged_level * int(!boss),
@@ -354,14 +384,17 @@ spawn_final_reinforcement :: proc() {
 	game.next_enemy_id += 1
 	append(&game.enemies, Enemy{
 		id = enemy_id,
+		type = .Normal,
 		pos = pos,
 		speed = ENEMY_BASE_SPEED,
-		health = 1,
-		max_health = 1,
+		health = 10,
+		max_health = 10,
 		radius = ENEMY_RADIUS,
 		boss = false,
 		attack_timer = ENEMY_MINION_SHOT_COOLDOWN,
 		attack_pattern = 0,
+		state_timer = 0,
+		dash_dir = Vec2{0, 0},
 		split_count = 0,
 		armor = 0,
 		ranged_level = 0,
@@ -466,6 +499,19 @@ fire_enemy_shot :: proc(e: ^Enemy, player_pos: Vec2) {
 	e.attack_timer = ENEMY_MINION_SHOT_COOLDOWN
 }
 
+fire_ranged_enemy_shot :: proc(e: ^Enemy, player_pos: Vec2) {
+	aim := vec2_normalize(vec2_sub(player_pos, e.pos))
+	append(&game.bullets, Bullet{
+		pos = e.pos,
+		vel = vec2_scale(aim, ENEMY_RANGED_SHOT_SPEED),
+		damage = ENEMY_RANGED_SHOT_DAMAGE,
+		hits_left = 1,
+		hostile = true,
+		alive = true,
+	})
+	e.attack_timer = ENEMY_RANGED_SHOT_COOLDOWN
+}
+
 update_spawning :: proc(dt: f32) {
 	game.elapsed += dt
 	if game.room == FINAL_ROOM {
@@ -540,8 +586,57 @@ update_enemies :: proc(dt: f32) {
 			continue
 		}
 
-		dir := vec2_normalize(vec2_sub(p.pos, e.pos))
-		e.pos = vec2_add(e.pos, vec2_scale(dir, e.speed * dt))
+		if e.type == .Charger {
+			if e.state_timer > 0 {
+				e.state_timer -= dt
+				if e.state_timer <= 0 do e.state_timer = -ENEMY_CHARGER_DASH_TIME
+			} else if e.state_timer < 0 {
+				e.pos = vec2_add(e.pos, vec2_scale(e.dash_dir, ENEMY_CHARGER_DASH_SPEED * dt))
+				e.state_timer += dt
+				if e.state_timer >= 0 {
+					e.state_timer = 0
+					e.attack_timer = ENEMY_CHARGER_COOLDOWN
+				}
+			} else {
+				e.attack_timer -= dt
+				distance := vec2_dist(p.pos, e.pos)
+				in_dash_range := distance >= ENEMY_CHARGER_MIN_DASH_RANGE && distance <= ENEMY_CHARGER_MAX_DASH_RANGE
+				if distance > ENEMY_CHARGER_MAX_DASH_RANGE {
+					dir := vec2_normalize(vec2_sub(p.pos, e.pos))
+					e.pos = vec2_add(e.pos, vec2_scale(dir, ENEMY_CHARGER_APPROACH_SPEED * dt))
+				}
+				if e.attack_timer <= 0 && in_dash_range {
+					e.state_timer = ENEMY_CHARGER_TELEGRAPH
+					to_player := vec2_normalize(vec2_sub(p.pos, e.pos))
+					past_player := vec2_add(p.pos, vec2_scale(to_player, ENEMY_CHARGER_OVERSHOOT))
+					e.dash_dir = vec2_normalize(vec2_sub(past_player, e.pos))
+				} else if e.attack_timer <= 0 && !in_dash_range {
+					e.attack_timer = 0
+				}
+			}
+		} else if e.type == .Ranged {
+			to_player := vec2_sub(p.pos, e.pos)
+			distance := vec2_len(to_player)
+			dir := vec2_normalize(to_player)
+			move_dir := Vec2{0, 0}
+			if distance > ENEMY_RANGED_DISTANCE + 35 {
+				move_dir = dir
+			} else if distance < ENEMY_RANGED_DISTANCE - 35 {
+				move_dir = vec2_scale(dir, -1)
+			} else {
+				strafe_sign := f32(1)
+				if e.id % 2 == 0 do strafe_sign = -1
+				move_dir = Vec2{-dir.y * strafe_sign, dir.x * strafe_sign}
+			}
+			e.pos = vec2_add(e.pos, vec2_scale(move_dir, e.speed * dt))
+			e.attack_timer -= dt
+			if e.attack_timer <= 0 do fire_ranged_enemy_shot(e, p.pos)
+		} else {
+			dir := vec2_normalize(vec2_sub(p.pos, e.pos))
+			e.pos = vec2_add(e.pos, vec2_scale(dir, e.speed * dt))
+		}
+		e.pos.x = clamp(e.pos.x, e.radius, SCREEN_W - e.radius)
+		e.pos.y = clamp(e.pos.y, e.radius, SCREEN_H - e.radius)
 		if e.boss {
 			e.attack_timer -= dt
 			if e.attack_timer <= 0 do fire_boss_pattern(e, p.pos)
@@ -560,7 +655,7 @@ update_enemies :: proc(dt: f32) {
 
 			if p.health <= 0 {
 				p.health = 0
-				game.state = .Game_Over
+				game.state = .Title
 			}
 		}
 	}
@@ -577,7 +672,7 @@ update_bullets :: proc(dt: f32) {
 			b.alive = false
 			if p.health <= 0 {
 				p.health = 0
-				game.state = .Game_Over
+				game.state = .Title
 			}
 		}
 		if b.pos.x < -20 || b.pos.x > SCREEN_W + 20 || b.pos.y < -20 || b.pos.y > SCREEN_H + 20 {
@@ -714,6 +809,41 @@ handle_collisions :: proc() {
 // Draw
 // ---------------------------------------------------------------------------
 
+draw_title_screen :: proc() {
+	rl.DrawRectangle(0, 0, SCREEN_W, SCREEN_H, rl.Color{10, 14, 24, 255})
+	rl.DrawRectangleLines(24, 24, SCREEN_W - 48, SCREEN_H - 48, rl.Color{70, 90, 125, 255})
+
+	title := cstring("UPGRADE ARENA")
+	title_w := rl.MeasureText(title, 64)
+	rl.DrawText(title, SCREEN_W / 2 - title_w / 2, 125, 64, rl.YELLOW)
+
+	blurb := cstring("Choose player cards to grow stronger while enemy cards twist each room with new threats.")
+	blurb_w := rl.MeasureText(blurb, 20)
+	rl.DrawText(blurb, SCREEN_W / 2 - blurb_w / 2, 225, 20, rl.LIGHTGRAY)
+	controls := cstring("WASD / Arrow Keys: Move    Mouse: Aim and Shoot")
+	controls_w := rl.MeasureText(controls, 18)
+	rl.DrawText(controls, SCREEN_W / 2 - controls_w / 2, 260, 18, rl.WHITE)
+
+	m := rl.GetMousePosition()
+	play_hovered := m.x >= 490 && m.x <= 790 && m.y >= 320 && m.y <= 390
+	exit_hovered := m.x >= 490 && m.x <= 790 && m.y >= 420 && m.y <= 490
+	play_fill := rl.Color{35, 70, 65, 255}
+	exit_fill := rl.Color{65, 42, 48, 255}
+	if play_hovered do play_fill = rl.Color{55, 105, 88, 255}
+	if exit_hovered do exit_fill = rl.Color{100, 58, 62, 255}
+
+	rl.DrawRectangle(490, 320, 300, 70, play_fill)
+	rl.DrawRectangleLines(490, 320, 300, 70, rl.Color{140, 190, 160, 255})
+	rl.DrawRectangle(490, 420, 300, 70, exit_fill)
+	rl.DrawRectangleLines(490, 420, 300, 70, rl.Color{190, 140, 140, 255})
+
+	play := cstring("PLAY")
+	exit := cstring("EXIT")
+	rl.DrawText(play, SCREEN_W / 2 - rl.MeasureText(play, 28) / 2, 340, 28, rl.WHITE)
+	rl.DrawText(exit, SCREEN_W / 2 - rl.MeasureText(exit, 28) / 2, 440, 28, rl.WHITE)
+	rl.DrawText(cstring("Click a button or press ENTER to play"), 470, 555, 18, rl.LIGHTGRAY)
+}
+
 draw_arena :: proc() {
 	rl.DrawRectangleLines(4, 4, SCREEN_W - 8, SCREEN_H - 8, rl.Color{60, 60, 75, 255})
 }
@@ -760,6 +890,24 @@ draw_enemies :: proc() {
 			rl.DrawRectangle(i32(bar_x), i32(bar_y), i32(bar_w), 10, rl.Color{45, 25, 35, 255})
 			rl.DrawRectangle(i32(bar_x), i32(bar_y), i32(bar_w * pct), 10, rl.RED)
 			rl.DrawRectangleLines(i32(bar_x), i32(bar_y), i32(bar_w), 10, rl.WHITE)
+		} else if e.type == .Charger {
+			col = rl.Color{255, 40, 190, 255}
+			if e.state_timer > 0 && int(e.state_timer * 14) % 2 == 0 do col = rl.YELLOW
+			if e.state_timer < 0 do col = rl.Color{255, 100, 220, 255}
+			rl.DrawCircleV(e.pos, e.radius, col)
+			if e.state_timer > 0 {
+				rl.DrawCircleLinesV(e.pos, e.radius + 5, rl.YELLOW)
+				direction_tip := vec2_add(e.pos, vec2_scale(e.dash_dir, 90))
+				rl.DrawLineV(e.pos, direction_tip, rl.YELLOW)
+			} else if e.state_timer < 0 {
+				dash_tip := vec2_add(e.pos, vec2_scale(e.dash_dir, 70))
+				rl.DrawLineV(e.pos, dash_tip, rl.Color{255, 100, 220, 255})
+			}
+		} else if e.type == .Ranged {
+			col = rl.Color{40, 220, 255, 255}
+			rl.DrawCircleV(e.pos, e.radius, col)
+			rl.DrawCircleLinesV(e.pos, e.radius + 3, rl.Color{20, 110, 220, 255})
+			rl.DrawCircleLinesV(e.pos, ENEMY_RANGED_DISTANCE, rl.Color{80, 150, 220, 45})
 		} else {
 			if e.health >= 2 do col = rl.ORANGE
 			if e.health >= 4 do col = rl.GREEN
@@ -879,11 +1027,20 @@ main :: proc() {
 	defer rl.CloseWindow()
 
 	init_game()
+	game.state = .Title
+	quit := false
 
-	for !rl.WindowShouldClose() {
+	for !rl.WindowShouldClose() && !quit {
 		dt := rl.GetFrameTime()
 
-		if game.state == .Playing {
+		if game.state == .Title {
+			if rl.IsKeyPressed(.ENTER) do init_game()
+			if rl.IsMouseButtonPressed(.LEFT) {
+				mouse := rl.GetMousePosition()
+				if mouse.x >= 490 && mouse.x <= 790 && mouse.y >= 320 && mouse.y <= 390 do init_game()
+				if mouse.x >= 490 && mouse.x <= 790 && mouse.y >= 420 && mouse.y <= 490 do quit = true
+			}
+		} else if game.state == .Playing {
 			update_player(dt)
 			update_spawning(dt)
 			update_enemies(dt)
@@ -900,15 +1057,19 @@ main :: proc() {
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.Color{18, 18, 24, 255})
 
-		draw_arena()
-		draw_bullets()
-		draw_enemies()
-		draw_player()
-		draw_hud()
-		if game.state == .Room_Clear do draw_room_clear()
-		if game.state == .Player_Upgrade || game.state == .Enemy_Upgrade do draw_upgrade_screen()
-		if game.state == .Game_Over do draw_game_over()
-		if game.state == .Victory do draw_victory()
+		if game.state == .Title {
+			draw_title_screen()
+		} else {
+			draw_arena()
+			draw_bullets()
+			draw_enemies()
+			draw_player()
+			draw_hud()
+			if game.state == .Room_Clear do draw_room_clear()
+			if game.state == .Player_Upgrade || game.state == .Enemy_Upgrade do draw_upgrade_screen()
+			if game.state == .Game_Over do draw_game_over()
+			if game.state == .Victory do draw_victory()
+		}
 
 		rl.EndDrawing()
 	}
