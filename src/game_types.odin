@@ -39,6 +39,13 @@ Player :: struct {
 	kill_heal:     f32,
 	invuln_timer: f32,
 	fire_timer:   f32,
+	dash_cooldown: f32,
+	dash_timer:   f32,
+	dash_shockwave_level: int,
+	shockwave_pos: Vec2,
+	shockwave_radius: f32,
+	shockwave_timer: f32,
+	shockwave_applied: bool,
 }
 
 Enemy :: struct {
@@ -89,6 +96,7 @@ Game_State :: enum { Title, Playing, Room_Clear, Player_Upgrade, Enemy_Upgrade, 
 
 Upgrade_Type :: enum {
 	Player_Speed, Rapid_Fire, Heavy_Bullets, Max_Health, Heal, Multi_Shot, Piercing, Vampire, Ricochet, Necromancer,
+	Dash_Shockwave,
 	Enemy_Haste, Enemy_Armor, Enemy_Swarm, Enemy_Frenzy, Enemy_Elite, Enemy_Splitter, Enemy_Bloodlust, Enemy_Thorns, Enemy_Ranged, Enemy_Shields, Enemy_Charger, Enemy_Ranged_Volley,
 }
 
@@ -107,6 +115,7 @@ Upgrade_Card :: struct {
 	ricochets: int,
 	necromancer_chance: f32,
 	kill_heal: f32,
+	shockwave: int,
 	enemy_speed: f32,
 	enemy_health: int,
 	spawn_rate: f32,

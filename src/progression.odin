@@ -15,6 +15,7 @@ init_game :: proc() {
 		bullet_damage  = PLAYER_START_DAMAGE,
 		bullet_count   = 1,
 		bullet_spread  = 0,
+		dash_cooldown  = PLAYER_DASH_COOLDOWN,
 	}
 	game.spawn_timer = SPAWN_INTERVAL_MAX
 	game.elapsed = 0
@@ -64,7 +65,7 @@ make_upgrade_cards :: proc(enemy: bool) {
 	player_pool := PLAYER_UPGRADE_POOL
 	enemy_pool := ENEMY_UPGRADE_POOL
 	pool: [8]Upgrade_Card
-	pool_size := 6
+	pool_size := 7
 	for i in 0..<pool_size {
 		pool[i] = player_pool[i]
 	}
@@ -108,6 +109,7 @@ apply_upgrade :: proc(card: Upgrade_Card) {
 	game.player.ricochets += card.ricochets
 	game.player.necromancer_chance = min(1, game.player.necromancer_chance + card.necromancer_chance)
 	game.player.kill_heal += card.kill_heal
+	game.player.dash_shockwave_level += card.shockwave
 	game.enemy_speed_bonus += card.enemy_speed
 	game.enemy_health_bonus += card.enemy_health
 	if card.spawn_rate > 0 do game.spawn_rate_multiplier *= card.spawn_rate

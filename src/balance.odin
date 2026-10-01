@@ -6,6 +6,11 @@ PLAYER_START_HEALTH :: f32(100)
 PLAYER_START_SPEED :: f32(260)
 PLAYER_START_DAMAGE :: 1
 PLAYER_START_FIRE_COOLDOWN :: f32(0.5)
+PLAYER_DASH_DISTANCE :: f32(150)
+PLAYER_DASH_COOLDOWN :: f32(1.5)
+PLAYER_DASH_SHOCKWAVE_RADIUS :: f32(105)
+PLAYER_DASH_SHOCKWAVE_DURATION :: f32(0.35)
+PLAYER_DASH_SHOCKWAVE_DAMAGE :: 2
 
 ENEMY_BASE_SPEED :: f32(125)
 ENEMY_MAX_SPEED :: f32(260)
@@ -43,13 +48,14 @@ ROOM_FIRST_ENEMY_COUNT :: 6
 ROOM_ENEMIES_PER_ROOM :: 3
 ROOM_XP :: 1
 
-PLAYER_UPGRADE_POOL :: [6]Upgrade_Card{
+PLAYER_UPGRADE_POOL :: [7]Upgrade_Card{
 	{title = "RAPID FIRE", description = "Fire 20% faster", kind = .Rapid_Fire, fire_rate = 0.8},
 	{title = "TRIPLE SHOT", description = "Fire 3 bullets in a spread", kind = .Multi_Shot, bullet_count = 3, spread = 0.16},
 	{title = "PIERCING", description = "Bullets pass through 1 enemy", kind = .Piercing, piercing = 1},
 	{title = "VAMPIRE", description = "Kills restore 5 health", kind = .Vampire, kill_heal = 5},
 	{title = "RICOCHET ROUNDS", description = "Bullets re-aim at 1 enemy after a hit", kind = .Ricochet, ricochets = 1},
 	{title = "NECROMANCER", description = "35% chance to convert a defeated enemy", kind = .Necromancer, necromancer_chance = 0.35},
+	{title = "DASH SHOCKWAVE", description = "Dash impact damages nearby enemies; stacks grow its radius", kind = .Dash_Shockwave, shockwave = 1},
 }
 
 ENEMY_UPGRADE_POOL :: [5]Upgrade_Card{

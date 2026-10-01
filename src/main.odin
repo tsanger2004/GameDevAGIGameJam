@@ -67,7 +67,7 @@ spawn_enemy :: proc() {
 		dash_dir = Vec2{0, 0},
 		split_count = game.enemy_splitter,
 		armor = game.enemy_armor,
-		ranged_level = game.enemy_ranged_level * int(!boss),
+		ranged_level = game.enemy_ranged_level * int(!boss && enemy_type == .Normal),
 		charger_dash_speed = charger_dash_speed,
 		charger_cooldown = charger_cooldown,
 		ranged_shots = ranged_shots,
@@ -123,6 +123,27 @@ update_player :: proc(dt: f32) {
 	if dir.x != 0 || dir.y != 0 {
 		dir = vec2_normalize(dir)
 		p.pos = vec2_add(p.pos, vec2_scale(dir, p.speed * dt))
+	}
+
+	if p.dash_timer > 0 do p.dash_timer -= dt
+	if p.shockwave_timer > 0 do p.shockwave_timer -= dt
+	if rl.IsKeyPressed(.SPACE) && p.dash_timer <= 0 {
+		dash_dir := dir
+		if dash_dir.x == 0 && dash_dir.y == 0 {
+			mouse := rl.GetMousePosition()
+			dash_dir = vec2_normalize(vec2_sub(mouse, p.pos))
+		}
+		if dash_dir.x != 0 || dash_dir.y != 0 {
+			p.pos = vec2_add(p.pos, vec2_scale(dash_dir, PLAYER_DASH_DISTANCE))
+			p.dash_timer = p.dash_cooldown
+			p.invuln_timer = max(p.invuln_timer, PLAYER_INVULN_TIME)
+			if p.dash_shockwave_level > 0 {
+				p.shockwave_pos = p.pos
+				p.shockwave_radius = PLAYER_DASH_SHOCKWAVE_RADIUS * (1 + f32(p.dash_shockwave_level - 1) * 0.25)
+				p.shockwave_timer = PLAYER_DASH_SHOCKWAVE_DURATION
+				p.shockwave_applied = false
+			}
+		}
 	}
 
 	p.pos.x = clamp(p.pos.x, PLAYER_RADIUS, SCREEN_W - PLAYER_RADIUS)
@@ -231,7 +252,7 @@ update_spawning :: proc(dt: f32) {
 			return
 		}
 		boss_present := false
-		for e in game.enemies {
+				for e in game.enemies {
 			if e.alive && e.boss {
 				boss_present = true
 				break
@@ -348,7 +369,7 @@ update_enemies :: proc(dt: f32) {
 		if e.boss {
 			e.attack_timer -= dt
 			if e.attack_timer <= 0 do fire_boss_pattern(e, p.pos)
-		} else if e.ranged_level > 0 {
+		} else if e.type == .Normal && e.ranged_level > 0 {
 			e.attack_timer -= dt
 			if e.attack_timer <= 0 do fire_enemy_shot(e, p.pos)
 		}
@@ -419,6 +440,23 @@ retarget_ricochet :: proc(b: ^Bullet) {
 }
 
 handle_collisions :: proc() {
+	if game.player.shockwave_timer > 0 && !game.player.shockwave_applied {
+		game.player.shockwave_applied = true
+		damage := PLAYER_DASH_SHOCKWAVE_DAMAGE * game.player.dash_shockwave_level
+		for ei in 0 ..< len(game.enemies) {
+			e := &game.enemies[ei]
+			if !e.alive || e.ally do continue
+			if vec2_dist(e.pos, game.player.shockwave_pos) <= game.player.shockwave_radius + e.radius {
+				e.health -= max(1, damage - e.armor)
+				if e.health <= 0 {
+					e.alive = false
+					game.kills += 1
+					game.player.health = min(game.player.max_health, game.player.health + game.player.kill_heal)
+				}
+			}
+		}
+	}
+
 	for bi in 0 ..< len(game.bullets) {
 		b := &game.bullets[bi]
 		if !b.alive || b.hostile do continue
@@ -558,6 +596,13 @@ draw_arena :: proc() {
 
 draw_player :: proc() {
 	p := game.player
+	if p.shockwave_timer > 0 {
+		progress := 1 - p.shockwave_timer / PLAYER_DASH_SHOCKWAVE_DURATION
+		wave_radius := p.shockwave_radius * (0.55 + progress * 0.45)
+		rl.DrawCircleV(p.shockwave_pos, wave_radius, rl.Color{45, 210, 240, 35})
+		rl.DrawCircleLinesV(p.shockwave_pos, wave_radius, rl.Color{90, 235, 255, 220})
+		rl.DrawCircleLinesV(p.shockwave_pos, wave_radius * 0.78, rl.Color{90, 235, 255, 110})
+	}
 	col := rl.SKYBLUE
 	if p.invuln_timer > 0 && int(p.invuln_timer * 20) % 2 == 0 {
 		col = rl.WHITE
@@ -648,6 +693,21 @@ draw_hud :: proc() {
 	rl.DrawText(fmt.ctprintf("Time: %.1fs", game.elapsed), SCREEN_W - 180, 48, 18, rl.LIGHTGRAY)
 	rl.DrawText(fmt.ctprintf("Kills: %d", game.kills), SCREEN_W - 180, 70, 18, rl.LIGHTGRAY)
 	rl.DrawText(fmt.ctprintf("Level %d  Room XP %d", game.level, game.xp), 20, 52, 18, rl.LIGHTGRAY)
+
+	dash_x := i32(285)
+	dash_y := i32(18)
+	dash_size := i32(46)
+	dash_ready := 1.0 - game.player.dash_timer / game.player.dash_cooldown
+	dash_ready = clamp(dash_ready, 0, 1)
+	rl.DrawRectangle(dash_x, dash_y, dash_size, dash_size, rl.Color{35, 45, 58, 255})
+	rl.DrawRectangle(dash_x, dash_y + dash_size - i32(f32(dash_size) * dash_ready), dash_size, i32(f32(dash_size) * dash_ready), rl.Color{40, 190, 220, 170})
+	rl.DrawRectangleLines(dash_x, dash_y, dash_size, dash_size, rl.WHITE)
+	dash_icon := rl.Color{100, 120, 135, 255}
+	if dash_ready >= 1 do dash_icon = rl.SKYBLUE
+	rl.DrawLine(dash_x + 12, dash_y + 29, dash_x + 24, dash_y + 17, dash_icon)
+	rl.DrawLine(dash_x + 24, dash_y + 17, dash_x + 22, dash_y + 25, dash_icon)
+	rl.DrawLine(dash_x + 24, dash_y + 17, dash_x + 32, dash_y + 19, dash_icon)
+	rl.DrawText(cstring("SPACE"), dash_x + 52, dash_y + 14, 14, rl.LIGHTGRAY)
 	room_label := fmt.ctprintf("Room %d/%d", game.room, FINAL_ROOM)
 	if game.room == FINAL_ROOM do room_label = cstring("FINAL ROOM - BOSS")
 	rl.DrawText(room_label, SCREEN_W / 2 - rl.MeasureText(room_label, 20) / 2, 20, 20, rl.YELLOW)
