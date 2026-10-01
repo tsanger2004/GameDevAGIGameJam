@@ -44,7 +44,7 @@ ROOM_ENEMIES_PER_ROOM :: 3
 ROOM_XP :: 1
 
 PLAYER_UPGRADE_POOL :: [6]Upgrade_Card{
-	{title = "SECOND WIND", description = "Restore 35 health", kind = .Heal, heal = 35},
+	{title = "RAPID FIRE", description = "Fire 20% faster", kind = .Rapid_Fire, fire_rate = 0.8},
 	{title = "TRIPLE SHOT", description = "Fire 3 bullets in a spread", kind = .Multi_Shot, bullet_count = 3, spread = 0.16},
 	{title = "PIERCING", description = "Bullets pass through 1 enemy", kind = .Piercing, piercing = 1},
 	{title = "VAMPIRE", description = "Kills restore 5 health", kind = .Vampire, kill_heal = 5},
@@ -52,11 +52,10 @@ PLAYER_UPGRADE_POOL :: [6]Upgrade_Card{
 	{title = "NECROMANCER", description = "35% chance to convert a defeated enemy", kind = .Necromancer, necromancer_chance = 0.35},
 }
 
-ENEMY_UPGRADE_POOL :: [6]Upgrade_Card{
+ENEMY_UPGRADE_POOL :: [5]Upgrade_Card{
 	{title = "SWARM", description = "Enemies spawn 20% faster", kind = .Enemy_Swarm, spawn_rate = 0.8},
 	{title = "SPLITTERS", description = "Normal enemies split on death", kind = .Enemy_Splitter, splitter = true},
-	{title = "BLOODLUST", description = "Enemy contact damage +5", kind = .Enemy_Bloodlust, contact_damage = 5},
-	{title = "THORNS", description = "Collisions knock you back harder", kind = .Enemy_Thorns, knockback = 5.0},
 	{title = "RANGED MINIONS", description = "Normal enemies fire at you", kind = .Enemy_Ranged, ranged = true},
-	{title = "SHIELDS", description = "Enemies reduce bullet damage by 1", kind = .Enemy_Shields, armor = 1},
+	{title = "CHARGER FRENZY", description = "Chargers dash 30% faster and recover 20% sooner", kind = .Enemy_Charger, charger_dash_speed = 1.3, charger_cooldown = 0.8},
+	{title = "RANGED VOLLEY", description = "Ranged enemies fire 1 extra shot", kind = .Enemy_Ranged_Volley, ranged_shots = 1},
 }

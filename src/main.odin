@@ -5,318 +5,6 @@ import "core:math"
 import "core:math/rand"
 import "core:fmt"
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-SCREEN_W :: 1280
-SCREEN_H :: 720
-
-PLAYER_RADIUS        :: 16
-PLAYER_INVULN_TIME   :: 0.6
-PLAYER_CONTACT_DMG   :: 15
-
-BULLET_RADIUS   :: 5
-BULLET_SPEED    :: 640
-
-ENEMY_RADIUS       :: 14
-SPAWN_INTERVAL_MAX :: 1.2
-SPAWN_INTERVAL_MIN :: 0.25
-FINAL_ROOM        :: ROOM_COUNT
-
-KNOCKBACK :: 900
-ALLY_ATTACK_COOLDOWN :: f32(0.5)
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-Vec2 :: rl.Vector2
-
-Player :: struct {
-	pos:          Vec2,
-	health:       f32,
-	max_health:   f32,
-	speed:        f32,
-	fire_cooldown: f32,
-	bullet_damage: int,
-	bullet_count:  int,
-	bullet_spread: f32,
-	piercing:      int,
-	ricochets:     int,
-	necromancer_chance: f32,
-	kill_heal:     f32,
-	invuln_timer: f32,
-	fire_timer:   f32,
-}
-
-Enemy :: struct {
-	id:     int,
-	type:   Enemy_Type,
-	pos:    Vec2,
-	speed:  f32,
-	health: int,
-	max_health: int,
-	radius: f32,
-	boss:   bool,
-	attack_timer: f32,
-	attack_pattern: int,
-	state_timer: f32,
-	dash_dir: Vec2,
-	split_count: int,
-	armor:  int,
-	ranged_level: int,
-	spawn_timer: f32,
-	ally_timer: f32,
-	ally:   bool,
-	alive:  bool,
-}
-
-Enemy_Type :: enum {
-	Normal,
-	Charger,
-	Ranged,
-	Boss,
-}
-
-Bullet :: struct {
-	pos:   Vec2,
-	vel:   Vec2,
-	damage: int,
-	hits_left: int,
-	hit_enemy_ids: [dynamic]int,
-	ricochets_left: int,
-	hostile: bool,
-	alive: bool,
-}
-
-Game_State :: enum { Title, Playing, Room_Clear, Player_Upgrade, Enemy_Upgrade, Game_Over, Victory }
-
-Upgrade_Type :: enum {
-	Player_Speed, Rapid_Fire, Heavy_Bullets, Max_Health, Heal, Multi_Shot, Piercing, Vampire, Ricochet, Necromancer,
-	Enemy_Haste, Enemy_Armor, Enemy_Swarm, Enemy_Frenzy, Enemy_Elite, Enemy_Splitter, Enemy_Bloodlust, Enemy_Thorns, Enemy_Ranged, Enemy_Shields,
-}
-
-Upgrade_Card :: struct {
-	title:       cstring,
-	description: cstring,
-	kind:        Upgrade_Type,
-	player_speed: f32,
-	fire_rate: f32,
-	damage: int,
-	max_health: f32,
-	heal: f32,
-	bullet_count: int,
-	spread: f32,
-	piercing: int,
-	ricochets: int,
-	necromancer_chance: f32,
-	kill_heal: f32,
-	enemy_speed: f32,
-	enemy_health: int,
-	spawn_rate: f32,
-	contact_damage: int,
-	splitter: bool,
-	knockback: f32,
-	ranged: bool,
-	armor: int,
-}
-
-Game :: struct {
-	state:       Game_State,
-	player:      Player,
-	enemies:     [dynamic]Enemy,
-	bullets:     [dynamic]Bullet,
-	spawn_timer: f32,
-	elapsed:     f32,
-	kills:       int,
-	level:       int,
-	xp:          int,
-	next_xp:     int,
-	room:        int,
-	room_spawned: int,
-	room_enemy_target: int,
-	enemy_speed_bonus: f32,
-	enemy_health_bonus: int,
-	spawn_rate_multiplier: f32,
-	enemy_contact_damage: int,
-	enemy_splitter: int,
-	enemy_knockback: f32,
-	enemy_ranged: bool,
-	enemy_ranged_level: int,
-	enemy_armor: int,
-	next_enemy_id: int,
-	final_reinforcement_timer: f32,
-	upgrade_cards: [3]Upgrade_Card,
-}
-
-game: Game
-
-// ---------------------------------------------------------------------------
-// Small vector helpers (rl.Vector2 is a plain struct, so no operator overloads)
-// ---------------------------------------------------------------------------
-
-vec2_add :: proc(a, b: Vec2) -> Vec2 { return Vec2{a.x + b.x, a.y + b.y} }
-vec2_sub :: proc(a, b: Vec2) -> Vec2 { return Vec2{a.x - b.x, a.y - b.y} }
-vec2_scale :: proc(a: Vec2, s: f32) -> Vec2 { return Vec2{a.x * s, a.y * s} }
-vec2_rotate :: proc(a: Vec2, angle: f32) -> Vec2 {
-	return Vec2{a.x * math.cos(angle) - a.y * math.sin(angle), a.x * math.sin(angle) + a.y * math.cos(angle)}
-}
-
-vec2_len :: proc(a: Vec2) -> f32 {
-	return math.sqrt(a.x * a.x + a.y * a.y)
-}
-
-vec2_normalize :: proc(a: Vec2) -> Vec2 {
-	l := vec2_len(a)
-	if l < 0.0001 do return Vec2{0, 0}
-	return Vec2{a.x / l, a.y / l}
-}
-
-vec2_dist :: proc(a, b: Vec2) -> f32 {
-	return vec2_len(vec2_sub(a, b))
-}
-
-rand_range :: proc(lo, hi: f32) -> f32 {
-	return lo + rand.float32() * (hi - lo)
-}
-
-// ---------------------------------------------------------------------------
-// Setup
-// ---------------------------------------------------------------------------
-
-init_game :: proc() {
-	clear(&game.enemies)
-	clear(&game.bullets)
-	game.player = Player{
-		pos            = Vec2{SCREEN_W / 2, SCREEN_H / 2},
-		health         = PLAYER_START_HEALTH,
-		max_health     = PLAYER_START_HEALTH,
-		speed          = PLAYER_START_SPEED,
-		fire_cooldown  = PLAYER_START_FIRE_COOLDOWN,
-		bullet_damage  = PLAYER_START_DAMAGE,
-			bullet_count   = 1,
-			bullet_spread  = 0,
-	}
-	game.spawn_timer = SPAWN_INTERVAL_MAX
-	game.elapsed = 0
-	game.kills = 0
-	game.level = 1
-	game.xp = 0
-	game.next_xp = 2
-	game.room = 1
-	game.enemy_speed_bonus = 0
-	game.enemy_health_bonus = 0
-	game.spawn_rate_multiplier = 1
-	game.enemy_contact_damage = ENEMY_CONTACT_DAMAGE
-	game.enemy_splitter = 0
-	game.enemy_knockback = 1
-	game.enemy_ranged = false
-	game.enemy_ranged_level = 0
-	game.enemy_armor = 0
-	game.next_enemy_id = 1
-	game.final_reinforcement_timer = FINAL_REINFORCEMENT_INTERVAL
-	start_room()
-	game.state = .Playing
-}
-
-start_room :: proc() {
-	clear(&game.enemies)
-	clear(&game.bullets)
-	game.room_spawned = 0
-	game.room_enemy_target = ROOM_FIRST_ENEMY_COUNT + game.room * ROOM_ENEMIES_PER_ROOM
-	if game.room == FINAL_ROOM do game.room_enemy_target = 1
-	game.spawn_timer = 0.5
-	game.final_reinforcement_timer = FINAL_REINFORCEMENT_INTERVAL
-	game.elapsed = 0
-	game.player.pos = Vec2{SCREEN_W / 2, SCREEN_H / 2}
-}
-
-start_next_room :: proc() {
-	game.room += 1
-	start_room()
-	game.state = .Playing
-}
-
-make_upgrade_cards :: proc(enemy: bool) {
-	player_pool := PLAYER_UPGRADE_POOL
-	enemy_pool := ENEMY_UPGRADE_POOL
-	pool: [8]Upgrade_Card
-	pool_size := 6
-	for i in 0..<pool_size {
-		pool[i] = player_pool[i]
-	}
-	if enemy {
-		pool_size = 6
-		for i in 0..<pool_size {
-			pool[i] = enemy_pool[i]
-		}
-	}
-	used: [8]bool
-	for i in 0..<3 {
-		index := int(rand.float32() * f32(pool_size))
-		for used[index] do index = (index + 1) % pool_size
-		used[index] = true
-		game.upgrade_cards[i] = pool[index]
-	}
-}
-
-begin_level_up :: proc() {
-	game.level += 1
-	make_upgrade_cards(false)
-	game.state = .Player_Upgrade
-}
-
-apply_upgrade :: proc(card: Upgrade_Card) {
-	if card.player_speed > 0 do game.player.speed *= card.player_speed
-	if card.fire_rate > 0 do game.player.fire_cooldown *= card.fire_rate
-	game.player.bullet_damage += card.damage
-	game.player.max_health += card.max_health
-	game.player.health += card.max_health
-	game.player.health = min(game.player.max_health, game.player.health + card.heal)
-	if card.bullet_count > 0 {
-		if game.player.bullet_count == 1 {
-			game.player.bullet_count = card.bullet_count
-		} else {
-			game.player.bullet_count += card.bullet_count
-		}
-	}
-	game.player.bullet_spread = max(game.player.bullet_spread, card.spread)
-	game.player.piercing += card.piercing
-	game.player.ricochets += card.ricochets
-	game.player.necromancer_chance = min(1, game.player.necromancer_chance + card.necromancer_chance)
-	game.player.kill_heal += card.kill_heal
-	game.enemy_speed_bonus += card.enemy_speed
-	game.enemy_health_bonus += card.enemy_health
-	if card.spawn_rate > 0 do game.spawn_rate_multiplier *= card.spawn_rate
-	game.enemy_contact_damage += card.contact_damage
-	if card.splitter do game.enemy_splitter += 1
-	game.enemy_knockback += card.knockback
-	if card.ranged {
-		game.enemy_ranged = true
-		game.enemy_ranged_level += 1
-	}
-	game.enemy_armor += card.armor
-}
-
-handle_upgrade_input :: proc() {
-	if !rl.IsMouseButtonPressed(.LEFT) do return
-	mouse := rl.GetMousePosition()
-	for i in 0..<3 {
-		x := f32(170 + i * 320)
-		if mouse.x >= x && mouse.x <= x + 260 && mouse.y >= 240 && mouse.y <= 480 {
-			apply_upgrade(game.upgrade_cards[i])
-			if game.state == .Player_Upgrade {
-				make_upgrade_cards(true)
-				game.state = .Enemy_Upgrade
-			} else {
-				start_next_room()
-			}
-			return
-		}
-	}
-}
-
 spawn_enemy :: proc() {
 	side := int(rand.float32() * 4)
 	pos: Vec2
@@ -344,11 +32,19 @@ spawn_enemy :: proc() {
 	radius := f32(ENEMY_RADIUS)
 	state_timer := f32(0)
 	attack_timer := ENEMY_BOSS_AIMED_COOLDOWN
+	charger_dash_speed := ENEMY_CHARGER_DASH_SPEED
+	charger_cooldown := ENEMY_CHARGER_COOLDOWN
+	ranged_shots := 1
+	ranged_cooldown := ENEMY_RANGED_SHOT_COOLDOWN
 	if enemy_type == .Charger {
-		attack_timer = ENEMY_CHARGER_COOLDOWN
+		charger_dash_speed *= game.charger_dash_speed_multiplier
+		charger_cooldown *= game.charger_cooldown_multiplier
+		attack_timer = charger_cooldown
 	} else if enemy_type == .Ranged {
 		speed = ENEMY_RANGED_SPEED
-		attack_timer = ENEMY_RANGED_SHOT_COOLDOWN
+		ranged_shots = game.ranged_shot_count
+		ranged_cooldown *= game.ranged_cooldown_multiplier
+		attack_timer = ranged_cooldown
 	}
 	if boss {
 		speed = ENEMY_BOSS_SPEED * (1 + game.enemy_speed_bonus)
@@ -372,6 +68,10 @@ spawn_enemy :: proc() {
 		split_count = game.enemy_splitter,
 		armor = game.enemy_armor,
 		ranged_level = game.enemy_ranged_level * int(!boss),
+		charger_dash_speed = charger_dash_speed,
+		charger_cooldown = charger_cooldown,
+		ranged_shots = ranged_shots,
+		ranged_cooldown = ranged_cooldown,
 		spawn_timer = 0,
 		alive = true,
 	})
@@ -398,6 +98,10 @@ spawn_final_reinforcement :: proc() {
 		split_count = 0,
 		armor = 0,
 		ranged_level = 0,
+		charger_dash_speed = ENEMY_CHARGER_DASH_SPEED,
+		charger_cooldown = ENEMY_CHARGER_COOLDOWN,
+		ranged_shots = 1,
+		ranged_cooldown = ENEMY_RANGED_SHOT_COOLDOWN,
 		spawn_timer = ENEMY_DROP_TIME,
 		alive = true,
 	})
@@ -501,15 +205,19 @@ fire_enemy_shot :: proc(e: ^Enemy, player_pos: Vec2) {
 
 fire_ranged_enemy_shot :: proc(e: ^Enemy, player_pos: Vec2) {
 	aim := vec2_normalize(vec2_sub(player_pos, e.pos))
-	append(&game.bullets, Bullet{
-		pos = e.pos,
-		vel = vec2_scale(aim, ENEMY_RANGED_SHOT_SPEED),
-		damage = ENEMY_RANGED_SHOT_DAMAGE,
-		hits_left = 1,
-		hostile = true,
-		alive = true,
-	})
-	e.attack_timer = ENEMY_RANGED_SHOT_COOLDOWN
+	for shot in 0..<e.ranged_shots {
+		center := f32(e.ranged_shots - 1) / 2
+		angle := (f32(shot) - center) * 0.16
+		append(&game.bullets, Bullet{
+			pos = e.pos,
+			vel = vec2_scale(vec2_rotate(aim, angle), ENEMY_RANGED_SHOT_SPEED),
+			damage = ENEMY_RANGED_SHOT_DAMAGE,
+			hits_left = 1,
+			hostile = true,
+			alive = true,
+		})
+	}
+	e.attack_timer = e.ranged_cooldown
 }
 
 update_spawning :: proc(dt: f32) {
@@ -591,11 +299,11 @@ update_enemies :: proc(dt: f32) {
 				e.state_timer -= dt
 				if e.state_timer <= 0 do e.state_timer = -ENEMY_CHARGER_DASH_TIME
 			} else if e.state_timer < 0 {
-				e.pos = vec2_add(e.pos, vec2_scale(e.dash_dir, ENEMY_CHARGER_DASH_SPEED * dt))
+				e.pos = vec2_add(e.pos, vec2_scale(e.dash_dir, e.charger_dash_speed * dt))
 				e.state_timer += dt
 				if e.state_timer >= 0 {
 					e.state_timer = 0
-					e.attack_timer = ENEMY_CHARGER_COOLDOWN
+					e.attack_timer = e.charger_cooldown
 				}
 			} else {
 				e.attack_timer -= dt
