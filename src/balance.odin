@@ -6,6 +6,7 @@ PLAYER_START_HEALTH :: f32(100)
 PLAYER_START_SPEED :: f32(260)
 PLAYER_START_DAMAGE :: 1
 PLAYER_START_FIRE_COOLDOWN :: f32(0.5)
+DEBUG_PLAYER_DAMAGE :: 10
 PLAYER_DASH_DISTANCE :: f32(150)
 PLAYER_DASH_COOLDOWN :: f32(1.5)
 PLAYER_DASH_SHOCKWAVE_RADIUS :: f32(105)
@@ -19,10 +20,17 @@ ENEMY_ROOM_HEALTH :: 2
 ENEMY_HEALTH_PER_ROOM :: 1
 ENEMY_BOSS_HEALTH :: 140
 ENEMY_BOSS_SPEED :: f32(70)
+ENEMY_BOSS_OPENING_SPEED :: f32(95)
 ENEMY_BOSS_SHOT_SPEED :: f32(230)
 ENEMY_BOSS_SHOT_DAMAGE :: 12
-ENEMY_BOSS_AIMED_COOLDOWN :: f32(2.2)
-ENEMY_BOSS_RADIAL_COOLDOWN :: f32(3.6)
+ENEMY_BOSS_AIMED_COOLDOWN :: f32(1.6)
+ENEMY_BOSS_RADIAL_COOLDOWN :: f32(2.6)
+ENEMY_BOSS_PHASE_TIME :: f32(7)
+ENEMY_BOSS_CHARGES :: 3
+ENEMY_BOSS_DASH_GAP :: f32(0.5)
+ENEMY_BOSS_FINAL_STAND_THRESHOLD :: f32(0.3)
+ENEMY_BOSS_FINAL_STAND_COOLDOWN :: f32(1.1)
+ENEMY_BOSS_FINAL_STAND_SPEED :: f32(210)
 ENEMY_MINION_SHOT_SPEED :: f32(180)
 ENEMY_MINION_SHOT_DAMAGE :: 8
 ENEMY_MINION_SHOT_COOLDOWN :: f32(2.8)
@@ -49,19 +57,19 @@ ROOM_ENEMIES_PER_ROOM :: 3
 ROOM_XP :: 1
 
 PLAYER_UPGRADE_POOL :: [7]Upgrade_Card{
-	{title = "RAPID FIRE", description = "Fire 20% faster", kind = .Rapid_Fire, fire_rate = 0.8},
-	{title = "TRIPLE SHOT", description = "Fire 3 bullets in a spread", kind = .Multi_Shot, bullet_count = 3, spread = 0.16},
-	{title = "PIERCING", description = "Bullets pass through 1 enemy", kind = .Piercing, piercing = 1},
-	{title = "VAMPIRE", description = "Kills restore 5 health", kind = .Vampire, kill_heal = 5},
-	{title = "RICOCHET ROUNDS", description = "Bullets re-aim at 1 enemy after a hit", kind = .Ricochet, ricochets = 1},
-	{title = "NECROMANCER", description = "35% chance to convert a defeated enemy", kind = .Necromancer, necromancer_chance = 0.35},
-	{title = "DASH SHOCKWAVE", description = "Dash impact damages nearby enemies; stacks grow its radius", kind = .Dash_Shockwave, shockwave = 1},
+	{title = "QUICK SCAN", description = "Scan 20% faster", kind = .Rapid_Fire, fire_rate = 0.8},
+	{title = "PACKET BURST", description = "Send 3 packets in a spread", kind = .Multi_Shot, bullet_count = 3, spread = 0.16},
+	{title = "DEEP CLEAN", description = "Packets pass through 1 virus", kind = .Piercing, piercing = 1},
+	{title = "SYSTEM RESTORE", description = "Deleted viruses restore 5 integrity", kind = .Vampire, kill_heal = 5},
+	{title = "REDIRECT", description = "Packets retarget 1 virus after a hit", kind = .Ricochet, ricochets = 1},
+	{title = "QUARANTINE", description = "35% chance to convert a virus into an ally", kind = .Necromancer, necromancer_chance = 0.35},
+	{title = "FIREWALL PULSE", description = "Dash damages nearby viruses; stacks grow its radius", kind = .Dash_Shockwave, shockwave = 1},
 }
 
 ENEMY_UPGRADE_POOL :: [5]Upgrade_Card{
-	{title = "SWARM", description = "Enemies spawn 20% faster", kind = .Enemy_Swarm, spawn_rate = 0.8},
-	{title = "SPLITTERS", description = "Normal enemies split on death", kind = .Enemy_Splitter, splitter = true},
-	{title = "RANGED MINIONS", description = "Normal enemies fire at you", kind = .Enemy_Ranged, ranged = true},
-	{title = "CHARGER FRENZY", description = "Chargers dash 30% faster and recover 20% sooner", kind = .Enemy_Charger, charger_dash_speed = 1.3, charger_cooldown = 0.8},
-	{title = "RANGED VOLLEY", description = "Ranged enemies fire 1 extra shot", kind = .Enemy_Ranged_Volley, ranged_shots = 1},
+	{title = "BOTNET BLOOM", description = "Viruses spawn 20% faster", kind = .Enemy_Swarm, spawn_rate = 0.8},
+	{title = "POLYMORPHIC CODE", description = "Basic viruses split when deleted", kind = .Enemy_Splitter, splitter = true},
+	{title = "BACKDOOR PROTOCOL", description = "Basic viruses begin firing packets", kind = .Enemy_Ranged, ranged = true},
+	{title = "WORM SURGE", description = "Worms dash 30% faster and recover 20% sooner", kind = .Enemy_Charger, charger_dash_speed = 1.3, charger_cooldown = 0.8},
+	{title = "PACKET FLOOD", description = "Backdoor viruses fire 1 extra packet", kind = .Enemy_Ranged_Volley, ranged_shots = 1},
 }

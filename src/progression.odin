@@ -32,6 +32,7 @@ init_game :: proc() {
 	game.enemy_knockback = 1
 	game.enemy_ranged = false
 	game.enemy_ranged_level = 0
+	game.special_enemy_first = .Ranged if rand.float32() < 0.5 else .Charger
 	game.enemy_armor = 0
 	game.charger_dash_speed_multiplier = 1
 	game.charger_cooldown_multiplier = 1
@@ -39,6 +40,14 @@ init_game :: proc() {
 	game.ranged_cooldown_multiplier = 1
 	game.next_enemy_id = 1
 	game.final_reinforcement_timer = FINAL_REINFORCEMENT_INTERVAL
+	start_room()
+	game.state = .Playing
+}
+
+start_boss_debug :: proc() {
+	init_game()
+	game.player.bullet_damage = DEBUG_PLAYER_DAMAGE
+	game.room = FINAL_ROOM
 	start_room()
 	game.state = .Playing
 }
