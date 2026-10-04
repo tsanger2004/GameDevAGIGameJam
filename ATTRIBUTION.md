@@ -3,8 +3,9 @@
 Every asset you did not make. Delete the example row.
 
 | asset (file) | source (URL) | author | licence | changes you made |
-|---|---|---|---|---|
-| `assets/player.png` | https://kenney.nl/assets/tiny-dungeon | Kenney | CC0 | cropped from sheet |
+
+| `assets/Sounds/*.ogg` | https://kenney.nl/assets | Kenney | CC0 | used as sound effects |
+| `assets/Music/Audio/computerNoise_000.ogg` | https://kenney.nl/assets | Kenney | CC0 | used as quiet looping background ambience |
 
 ## AI-generated assets
 

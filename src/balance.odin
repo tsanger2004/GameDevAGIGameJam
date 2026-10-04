@@ -5,6 +5,7 @@ package main
 PLAYER_START_HEALTH :: f32(100)
 PLAYER_START_SPEED :: f32(260)
 PLAYER_START_DAMAGE :: 1
+PLAYER_REGEN_PER_SECOND :: f32(1)
 PLAYER_START_FIRE_COOLDOWN :: f32(0.5)
 DEBUG_PLAYER_DAMAGE :: 10
 PLAYER_DASH_DISTANCE :: f32(150)
@@ -19,6 +20,7 @@ ENEMY_CONTACT_DAMAGE :: 22
 ENEMY_ROOM_HEALTH :: 2
 ENEMY_HEALTH_PER_ROOM :: 1
 ENEMY_BOSS_HEALTH :: 140
+DASH_ONLY_BOSS_HEALTH :: 45
 ENEMY_BOSS_SPEED :: f32(70)
 ENEMY_BOSS_OPENING_SPEED :: f32(95)
 ENEMY_BOSS_SHOT_SPEED :: f32(230)
@@ -72,4 +74,21 @@ ENEMY_UPGRADE_POOL :: [5]Upgrade_Card{
 	{title = "BACKDOOR PROTOCOL", description = "Basic viruses begin firing packets", kind = .Enemy_Ranged, ranged = true},
 	{title = "WORM SURGE", description = "Worms dash 30% faster and recover 20% sooner", kind = .Enemy_Charger, charger_dash_speed = 1.3, charger_cooldown = 0.8},
 	{title = "PACKET FLOOD", description = "Backdoor viruses fire 1 extra packet", kind = .Enemy_Ranged_Volley, ranged_shots = 1},
+}
+
+RESTLESS_ENEMY_CARD :: Upgrade_Card{
+	title = "THEY GROW RESTLESS",
+	description = "Every enemy system boost activates at once",
+	kind = .Enemy_Frenzy,
+	enemy_speed = 0.2,
+	enemy_health = 1,
+	spawn_rate = 0.75,
+	contact_damage = 5,
+	splitter = true,
+	ranged = true,
+	armor = 1,
+	charger_dash_speed = 1.25,
+	charger_cooldown = 0.8,
+	ranged_shots = 1,
+	ranged_cooldown = 0.8,
 }

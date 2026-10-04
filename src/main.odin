@@ -5,6 +5,91 @@ import "core:math"
 import "core:math/rand"
 import "core:fmt"
 import "core:strings"
+import "core:os"
+import "core:strconv"
+
+play_audio :: proc(sound: rl.Sound) {
+	if sound.frameCount > 0 {
+		rl.SetSoundPitch(sound, rand_range(0.94, 1.06))
+		rl.PlaySound(sound)
+	}
+}
+
+set_audio_volume :: proc(volume: f32) {
+	music_volume := f32(0)
+	if music_enabled do music_volume = volume * 0.05
+	rl.SetMusicVolume(audio.music, music_volume)
+	rl.SetSoundVolume(audio.player_shoot, volume)
+	rl.SetSoundVolume(audio.enemy_shoot, volume)
+	rl.SetSoundVolume(audio.hurt, volume)
+	rl.SetSoundVolume(audio.death, volume)
+	rl.SetSoundVolume(audio.dash, volume)
+	rl.SetSoundVolume(audio.card, volume)
+	rl.SetSoundVolume(audio.lose, volume)
+}
+
+load_audio :: proc() {
+	rl.InitAudioDevice()
+	audio.music = rl.LoadMusicStream(cstring("assets/Music/Audio/computerNoise_000.ogg"))
+	audio.music.looping = true
+	rl.PlayMusicStream(audio.music)
+	audio.player_shoot = rl.LoadSound(cstring("assets/Sounds/shoot-a.ogg"))
+	audio.enemy_shoot = rl.LoadSound(cstring("assets/Sounds/shoot-c.ogg"))
+	audio.hurt = rl.LoadSound(cstring("assets/Sounds/hurt-a.ogg"))
+	audio.death = rl.LoadSound(cstring("assets/Sounds/explosion-a.ogg"))
+	audio.dash = rl.LoadSound(cstring("assets/Sounds/jump-a.ogg"))
+	audio.card = rl.LoadSound(cstring("assets/Sounds/select-a.ogg"))
+	audio.lose = rl.LoadSound(cstring("assets/Sounds/lose-a.ogg"))
+	set_audio_volume(master_volume)
+}
+
+unload_audio :: proc() {
+	rl.UnloadMusicStream(audio.music)
+	rl.UnloadSound(audio.player_shoot)
+	rl.UnloadSound(audio.enemy_shoot)
+	rl.UnloadSound(audio.hurt)
+	rl.UnloadSound(audio.death)
+	rl.UnloadSound(audio.dash)
+	rl.UnloadSound(audio.card)
+	rl.UnloadSound(audio.lose)
+	rl.CloseAudioDevice()
+}
+
+get_game_mouse_position :: proc() -> Vec2 {
+	screen_w := f32(rl.GetScreenWidth())
+	screen_h := f32(rl.GetScreenHeight())
+	scale := min(screen_w / f32(SCREEN_W), screen_h / f32(SCREEN_H))
+	offset := Vec2{
+		(screen_w - f32(SCREEN_W) * scale) * 0.5,
+		(screen_h - f32(SCREEN_H) * scale) * 0.5,
+	}
+	mouse := rl.GetMousePosition()
+	return Vec2{(mouse.x - offset.x) / scale, (mouse.y - offset.y) / scale}
+}
+
+load_ascension_progress :: proc() {
+	data, err := os.read_entire_file("ascension.dat", context.temp_allocator)
+	if err == nil {
+		value, ok := strconv.parse_int(string(data))
+		if ok do ascension_unlocked = clamp(value, 0, 5)
+	}
+}
+
+save_ascension_progress :: proc() {
+	_ = os.write_entire_file("ascension.dat", string(fmt.ctprintf("%d", ascension_unlocked)))
+}
+
+load_endless_progress :: proc() {
+	data, err := os.read_entire_file("endless.dat", context.temp_allocator)
+	if err == nil {
+		value, ok := strconv.parse_int(string(data))
+		if ok do endless_unlocked = value > 0
+	}
+}
+
+save_endless_progress :: proc() {
+	_ = os.write_entire_file("endless.dat", "1")
+}
 
 spawn_enemy :: proc() {
 	side := int(rand.float32() * 4)
@@ -19,16 +104,54 @@ spawn_enemy :: proc() {
 	boss := game.room == FINAL_ROOM
 	enemy_type := Enemy_Type.Normal
 	if !boss {
-		roll := rand.float32()
-		if game.room >= 2 {
-			if game.room == 2 {
-				if game.room_spawned % 5 == 0 || roll < 0.2 {
-					enemy_type = game.special_enemy_first
+		switch game.ascension {
+		case .Standard:
+			roll := rand.float32()
+			if game.room >= 2 {
+				if game.room == 2 {
+					if game.room_spawned % 5 == 0 || roll < 0.2 {
+						enemy_type = game.special_enemy_first
+					}
+				} else if game.room_spawned % 5 == 0 || roll < 0.2 {
+					enemy_type = .Charger
+				} else if game.room_spawned % 5 == 1 || roll < 0.4 {
+					enemy_type = .Ranged
 				}
-			} else if game.room_spawned % 5 == 0 || roll < 0.2 {
-				enemy_type = .Charger
-			} else if game.room_spawned % 5 == 1 || roll < 0.4 {
-				enemy_type = .Ranged
+			}
+		case .Chargers:
+			enemy_type = .Charger
+		case .Bullet_Hell:
+			enemy_type = .Ranged if rand.float32() < 0.5 else .Normal
+		case .Splitter_Swarm:
+			roll := rand.float32()
+			enemy_type = .Normal
+			if roll >= 0.34 && roll < 0.67 do enemy_type = .Charger
+			if roll >= 0.67 do enemy_type = .Ranged
+		case .Dash_Only:
+			roll := rand.float32()
+			if game.room >= 2 {
+				if game.room == 2 {
+					if game.room_spawned % 5 == 0 || roll < 0.2 {
+						enemy_type = game.special_enemy_first
+					}
+				} else if game.room_spawned % 5 == 0 || roll < 0.2 {
+					enemy_type = .Charger
+				} else if game.room_spawned % 5 == 1 || roll < 0.4 {
+					enemy_type = .Ranged
+				}
+			}
+		case .Restless:
+			roll := rand.float32()
+			if game.room >= 2 {
+				if game.room == 2 {
+					if game.room_spawned % 5 == 0 || roll < 0.2 {
+						enemy_type = game.special_enemy_first
+					}
+				} else if game.room_spawned % 5 == 0 || roll < 0.2 {
+					enemy_type = .Charger
+				} else if game.room_spawned % 5 == 1 || roll < 0.4 {
+					enemy_type = .Ranged
+				}
 			}
 		}
 	}
@@ -56,6 +179,7 @@ spawn_enemy :: proc() {
 	if boss {
 		speed = ENEMY_BOSS_OPENING_SPEED * (1 + game.enemy_speed_bonus)
 		health = ENEMY_BOSS_HEALTH + game.enemy_health_bonus * 2
+		if game.ascension == .Dash_Only do health = DASH_ONLY_BOSS_HEALTH
 		radius = 34
 	}
 
@@ -75,7 +199,7 @@ spawn_enemy :: proc() {
 		boss_charges_remaining = ENEMY_BOSS_CHARGES,
 		state_timer = state_timer,
 		dash_dir = Vec2{0, 0},
-		split_count = game.enemy_splitter,
+		split_count = 2 if boss && (game.ascension == .Splitter_Swarm || game.ascension == .Restless) else game.enemy_splitter,
 		armor = game.enemy_armor,
 		ranged_level = game.enemy_ranged_level * int(!boss && enemy_type == .Normal),
 		charger_dash_speed = charger_dash_speed,
@@ -92,16 +216,31 @@ spawn_final_reinforcement :: proc() {
 	pos := Vec2{rand_range(80, SCREEN_W - 80), 70}
 	enemy_id := game.next_enemy_id
 	game.next_enemy_id += 1
+	reinforcement_type := Enemy_Type.Normal
+	if game.ascension == .Chargers {
+		reinforcement_type = .Charger
+	} else if game.ascension == .Bullet_Hell {
+		reinforcement_type = .Ranged if rand.float32() < 0.5 else .Normal
+	} else if game.ascension == .Splitter_Swarm {
+		roll := rand.float32()
+		if roll < 0.34 {
+			reinforcement_type = .Normal
+		} else if roll < 0.67 {
+			reinforcement_type = .Charger
+		} else {
+			reinforcement_type = .Ranged
+		}
+	}
 	append(&game.enemies, Enemy{
 		id = enemy_id,
-		type = .Normal,
+		type = reinforcement_type,
 		pos = pos,
 		speed = ENEMY_BASE_SPEED,
 		health = 10,
 		max_health = 10,
 		radius = ENEMY_RADIUS,
 		boss = false,
-		attack_timer = ENEMY_MINION_SHOT_COOLDOWN,
+		attack_timer = ENEMY_CHARGER_COOLDOWN if reinforcement_type == .Charger else ENEMY_RANGED_SHOT_COOLDOWN if reinforcement_type == .Ranged else ENEMY_MINION_SHOT_COOLDOWN,
 		attack_pattern = 0,
 		state_timer = 0,
 		dash_dir = Vec2{0, 0},
@@ -140,10 +279,11 @@ update_player :: proc(dt: f32) {
 	if rl.IsKeyPressed(.SPACE) && p.dash_timer <= 0 {
 		dash_dir := dir
 		if dash_dir.x == 0 && dash_dir.y == 0 {
-			mouse := rl.GetMousePosition()
+			mouse := get_game_mouse_position()
 			dash_dir = vec2_normalize(vec2_sub(mouse, p.pos))
 		}
 		if dash_dir.x != 0 || dash_dir.y != 0 {
+			play_audio(audio.dash)
 			p.pos = vec2_add(p.pos, vec2_scale(dash_dir, PLAYER_DASH_DISTANCE))
 			p.dash_timer = p.dash_cooldown
 			p.invuln_timer = max(p.invuln_timer, PLAYER_INVULN_TIME)
@@ -161,9 +301,10 @@ update_player :: proc(dt: f32) {
 
 	if p.invuln_timer > 0 do p.invuln_timer -= dt
 	if p.fire_timer > 0   do p.fire_timer -= dt
+	p.health = min(p.max_health, p.health + PLAYER_REGEN_PER_SECOND * dt)
 
-	if rl.IsMouseButtonDown(.LEFT) && p.fire_timer <= 0 {
-		mouse := rl.GetMousePosition()
+	if game.ascension != .Dash_Only && rl.IsMouseButtonDown(.LEFT) && p.fire_timer <= 0 {
+		mouse := get_game_mouse_position()
 		aim := vec2_normalize(vec2_sub(mouse, p.pos))
 		if aim.x != 0 || aim.y != 0 {
 			for shot in 0..<p.bullet_count {
@@ -180,11 +321,13 @@ update_player :: proc(dt: f32) {
 				})
 			}
 			p.fire_timer = p.fire_cooldown
+			play_audio(audio.player_shoot)
 		}
 	}
 }
 
 fire_hostile_bullet :: proc(pos, vel: Vec2, damage: int) {
+	play_audio(audio.enemy_shoot)
 	append(&game.bullets, Bullet{
 		pos = pos,
 		vel = vel,
@@ -358,10 +501,15 @@ update_boss_charger_movement :: proc(e: ^Enemy, player: ^Player, dt: f32) {
 			e.state_timer = 0
 			e.boss_charges_remaining -= 1
 			if e.boss_charges_remaining <= 0 {
-				e.boss_phase = 2
-				e.boss_phase_timer = ENEMY_BOSS_PHASE_TIME
-				e.attack_timer = 0
-				e.speed = ENEMY_RANGED_SPEED
+				if game.ascension == .Chargers {
+					e.boss_charges_remaining = ENEMY_BOSS_CHARGES
+					e.attack_timer = ENEMY_BOSS_DASH_GAP * 2
+				} else {
+					e.boss_phase = 2
+					e.boss_phase_timer = ENEMY_BOSS_PHASE_TIME
+					e.attack_timer = 0
+					e.speed = ENEMY_RANGED_SPEED
+				}
 			} else {
 				e.attack_timer = ENEMY_BOSS_DASH_GAP
 			}
@@ -396,6 +544,11 @@ update_ranged_movement :: proc(e: ^Enemy, player: ^Player, dt: f32) {
 }
 
 update_boss_phase :: proc(e: ^Enemy, dt: f32) {
+	if game.ascension == .Chargers {
+		e.boss_phase = 1
+		e.boss_charges_remaining = max(e.boss_charges_remaining, 1)
+		return
+	}
 	if f32(e.health) <= f32(e.max_health) * ENEMY_BOSS_FINAL_STAND_THRESHOLD && e.boss_phase != 3 {
 		e.boss_phase = 3
 		e.boss_phase_timer = 0
@@ -506,6 +659,7 @@ update_enemies :: proc(dt: f32) {
 		if p.invuln_timer <= 0 && vec2_dist(e.pos, p.pos) < e.radius + PLAYER_RADIUS {
 			p.health -= f32(game.enemy_contact_damage)
 			p.invuln_timer = PLAYER_INVULN_TIME
+			play_audio(audio.hurt)
 
 			push := vec2_normalize(vec2_sub(p.pos, e.pos))
 			p.pos = vec2_add(p.pos, vec2_scale(push, KNOCKBACK * game.enemy_knockback * dt))
@@ -513,6 +667,7 @@ update_enemies :: proc(dt: f32) {
 
 			if p.health <= 0 {
 				p.health = 0
+				play_audio(audio.lose)
 				game.state = .Title
 			}
 		}
@@ -527,9 +682,11 @@ update_bullets :: proc(dt: f32) {
 		if b.hostile && p.invuln_timer <= 0 && vec2_dist(b.pos, p.pos) < BULLET_RADIUS + PLAYER_RADIUS {
 			p.health -= f32(b.damage)
 			p.invuln_timer = PLAYER_INVULN_TIME
+			play_audio(audio.hurt)
 			b.alive = false
 			if p.health <= 0 {
 				p.health = 0
+				play_audio(audio.lose)
 				game.state = .Title
 			}
 		}
@@ -571,7 +728,7 @@ retarget_ricochet :: proc(b: ^Bullet) {
 handle_collisions :: proc() {
 	if game.player.shockwave_timer > 0 && !game.player.shockwave_applied {
 		game.player.shockwave_applied = true
-		damage := PLAYER_DASH_SHOCKWAVE_DAMAGE * game.player.dash_shockwave_level
+		damage := PLAYER_DASH_SHOCKWAVE_DAMAGE
 		for ei in 0 ..< len(game.enemies) {
 			e := &game.enemies[ei]
 			if !e.alive || e.ally do continue
@@ -580,6 +737,7 @@ handle_collisions :: proc() {
 				if e.health <= 0 {
 					e.alive = false
 					game.kills += 1
+					play_audio(audio.death)
 					game.player.health = min(game.player.max_health, game.player.health + game.player.kill_heal)
 				}
 			}
@@ -621,6 +779,7 @@ handle_collisions :: proc() {
 						split_count := e.split_count
 						e.alive = false
 						game.kills += 1
+						play_audio(audio.death)
 						game.player.health = min(game.player.max_health, game.player.health + game.player.kill_heal)
 						if split_count > 0 {
 							child_count := split_count * 2
@@ -634,7 +793,7 @@ handle_collisions :: proc() {
 								}
 								append(&game.enemies, Enemy{
 									id = game.next_enemy_id,
-									type = .Boss if was_boss else .Normal,
+									type = .Boss if was_boss else .Charger if game.ascension == .Chargers else .Normal,
 									pos = Vec2{death_pos.x + offset, death_pos.y},
 									speed = death_speed * 1.2,
 									health = child_health,
@@ -684,7 +843,22 @@ handle_collisions :: proc() {
 	if game.state == .Playing && game.room_spawned >= game.room_enemy_target && hostile_enemies == 0 {
 		game.xp += ROOM_XP
 		if game.room == FINAL_ROOM {
-			game.state = .Victory
+			if game.endless {
+				game.room = 1
+				start_room()
+				game.state = .Playing
+			} else {
+				game.state = .Victory
+				if game.ascension == .Standard && !endless_unlocked {
+					endless_unlocked = true
+					save_endless_progress()
+				}
+				if int(game.ascension) < 5 {
+					previous := ascension_unlocked
+					ascension_unlocked = max(ascension_unlocked, int(game.ascension) + 1)
+					if ascension_unlocked != previous do save_ascension_progress()
+				}
+			}
 		} else {
 			begin_level_up()
 		}
@@ -706,28 +880,119 @@ draw_title_screen :: proc() {
 	blurb := cstring("Boot the antivirus, purge the infected system, and destroy the corrupted core.")
 	blurb_w := rl.MeasureText(blurb, 20)
 	rl.DrawText(blurb, SCREEN_W / 2 - blurb_w / 2, 225, 20, rl.LIGHTGRAY)
-	controls := cstring("WASD / Arrow Keys: Move    Mouse: Aim and Shoot")
+	controls := cstring("WASD / Arrow Keys: Move    Mouse: Aim and Shoot    F: Fullscreen    ESC: Exit")
 	controls_w := rl.MeasureText(controls, 18)
 	rl.DrawText(controls, SCREEN_W / 2 - controls_w / 2, 260, 18, rl.WHITE)
+	volume_label := cstring("VOLUME")
+	volume_x := i32(530)
+	volume_y := i32(80)
+	volume_w := i32(220)
+	rl.DrawText(volume_label, volume_x - 72, volume_y - 7, 16, rl.LIGHTGRAY)
+	rl.DrawRectangle(volume_x, volume_y, volume_w, 8, rl.Color{35, 48, 52, 255})
+	rl.DrawRectangle(volume_x, volume_y, i32(f32(volume_w) * master_volume), 8, rl.Color{80, 220, 190, 255})
+	rl.DrawCircle(volume_x + i32(f32(volume_w) * master_volume), volume_y + 4, 10, rl.Color{120, 245, 215, 255})
+	rl.DrawText(fmt.ctprintf("%d%%", int(master_volume * 100)), volume_x + volume_w + 16, volume_y - 7, 16, rl.WHITE)
+	music_fill := rl.Color{35, 70, 65, 255}
+	if !music_enabled do music_fill = rl.Color{55, 42, 48, 255}
+	rl.DrawRectangle(800, 68, 110, 40, music_fill)
+	rl.DrawRectangleLines(800, 68, 110, 40, rl.Color{100, 180, 160, 255})
+	music_label := cstring("MUSIC ON")
+	if !music_enabled do music_label = cstring("MUSIC OFF")
+	rl.DrawText(music_label, 855 - rl.MeasureText(music_label, 16) / 2, 80, 16, rl.WHITE)
 
-	m := rl.GetMousePosition()
-	play_hovered := m.x >= 490 && m.x <= 790 && m.y >= 320 && m.y <= 390
-	exit_hovered := m.x >= 490 && m.x <= 790 && m.y >= 420 && m.y <= 490
+	m := get_game_mouse_position()
+	ascension_header := cstring("ASCENSION MODES")
+	rl.DrawText(ascension_header, SCREEN_W / 2 - rl.MeasureText(ascension_header, 18) / 2, 300, 18, rl.LIGHTGRAY)
+	ascension_names := [5]cstring{"A1  WORM SURGE", "A2  PACKET FLOOD", "A3  POLYMORPHIC SWARM", "A4  DASH PROTOCOL", "A5  THEY GROW RESTLESS"}
+	for i in 0..<5 {
+		col := i % 3
+		row := i / 3
+		x := i32(170 + col * 320)
+		if row == 1 do x = i32(330 + col * 320)
+		y := i32(330 + row * 70)
+		unlocked := i < ascension_unlocked
+		hovered := unlocked && m.x >= f32(x) && m.x <= f32(x + 260) && m.y >= f32(y) && m.y <= f32(y + 60)
+		fill := rl.Color{28, 30, 38, 255}
+		border := rl.Color{75, 80, 95, 255}
+		label := cstring("LOCKED")
+		if unlocked {
+			fill = rl.Color{58, 28, 58, 255}
+			border = rl.Color{220, 90, 170, 255}
+			label = ascension_names[i]
+		}
+		if hovered do fill = rl.Color{95, 42, 83, 255}
+		rl.DrawRectangle(x, y, 260, 60, fill)
+		rl.DrawRectangleLines(x, y, 260, 60, border)
+		rl.DrawText(label, x + 130 - rl.MeasureText(label, 18) / 2, y + 20, 18, border)
+	}
+
+	play_hovered := m.x >= 490 && m.x <= 790 && m.y >= 490 && m.y <= 545
+	endless_hovered := endless_unlocked && m.x >= 490 && m.x <= 790 && m.y >= 555 && m.y <= 610
+	exit_hovered := m.x >= 490 && m.x <= 790 && m.y >= 620 && m.y <= 675
 	play_fill := rl.Color{35, 70, 65, 255}
+	endless_fill := rl.Color{28, 30, 38, 255}
 	exit_fill := rl.Color{65, 42, 48, 255}
 	if play_hovered do play_fill = rl.Color{55, 105, 88, 255}
+	if endless_unlocked {
+		endless_fill = rl.Color{35, 55, 70, 255}
+		if endless_hovered do endless_fill = rl.Color{55, 85, 105, 255}
+	}
 	if exit_hovered do exit_fill = rl.Color{100, 58, 62, 255}
+	rl.DrawRectangle(490, 490, 300, 55, play_fill)
+	rl.DrawRectangleLines(490, 490, 300, 55, rl.Color{140, 190, 160, 255})
+	rl.DrawRectangle(490, 555, 300, 55, endless_fill)
+	rl.DrawRectangleLines(490, 555, 300, 55, rl.Color{80, 130, 160, 255})
+	rl.DrawRectangle(490, 620, 300, 55, exit_fill)
+	rl.DrawRectangleLines(490, 620, 300, 55, rl.Color{190, 140, 140, 255})
+	standard_label := cstring("STANDARD SCAN")
+	endless_label := cstring("ENDLESS SCAN")
+	exit_label := cstring("EXIT")
+	rl.DrawText(standard_label, SCREEN_W / 2 - rl.MeasureText(standard_label, 22) / 2, 506, 22, rl.WHITE)
+	if endless_unlocked do rl.DrawText(endless_label, SCREEN_W / 2 - rl.MeasureText(endless_label, 22) / 2, 571, 22, rl.WHITE)
+	if !endless_unlocked do rl.DrawText(cstring("LOCKED"), SCREEN_W / 2 - rl.MeasureText(cstring("LOCKED"), 18) / 2, 573, 18, rl.GRAY)
+	rl.DrawText(exit_label, SCREEN_W / 2 - rl.MeasureText(exit_label, 22) / 2, 636, 22, rl.WHITE)
+	rl.DrawText(cstring("Click a mode or press ENTER for a standard scan"), 420, 695, 18, rl.LIGHTGRAY)
+	legend_fill := rl.Color{25, 50, 55, 255}
+	legend_hovered := m.x >= 930 && m.x <= 1150 && m.y >= 68 && m.y <= 108
+	if legend_hovered do legend_fill = rl.Color{45, 90, 88, 255}
+	rl.DrawRectangle(930, 68, 220, 40, legend_fill)
+	rl.DrawRectangleLines(930, 68, 220, 40, rl.Color{90, 190, 170, 255})
+	legend_label := cstring("LEGEND  (L)")
+	rl.DrawText(legend_label, SCREEN_W / 2 + 400 - rl.MeasureText(legend_label, 18) / 2, 79, 18, rl.WHITE)
+}
 
-	rl.DrawRectangle(490, 320, 300, 70, play_fill)
-	rl.DrawRectangleLines(490, 320, 300, 70, rl.Color{140, 190, 160, 255})
-	rl.DrawRectangle(490, 420, 300, 70, exit_fill)
-	rl.DrawRectangleLines(490, 420, 300, 70, rl.Color{190, 140, 140, 255})
+draw_legend_screen :: proc() {
+	rl.DrawRectangle(0, 0, SCREEN_W, SCREEN_H, rl.Color{5, 16, 21, 255})
+	rl.DrawRectangleLines(70, 50, SCREEN_W - 140, SCREEN_H - 120, rl.Color{50, 150, 140, 255})
+	title := cstring("SYSTEM LEGEND")
+	rl.DrawText(title, SCREEN_W / 2 - rl.MeasureText(title, 52) / 2, 78, 52, rl.SKYBLUE)
+	rl.DrawText(cstring("VIRUS CLEANUP TERMS"), 150, 175, 20, rl.Color{100, 240, 210, 255})
+	rl.DrawText(cstring("UPGRADE CARD TERMS"), 700, 175, 20, rl.Color{100, 240, 210, 255})
 
-	play := cstring("PLAY")
-	exit := cstring("EXIT")
-	rl.DrawText(play, SCREEN_W / 2 - rl.MeasureText(play, 28) / 2, 340, 28, rl.WHITE)
-	rl.DrawText(exit, SCREEN_W / 2 - rl.MeasureText(exit, 28) / 2, 440, 28, rl.WHITE)
-	rl.DrawText(cstring("Click a button or press ENTER to begin the scan"), 450, 555, 18, rl.LIGHTGRAY)
+	rl.DrawText(cstring("PACKET  =  bullet / projectile"), 150, 220, 20, rl.WHITE)
+	rl.DrawText(cstring("VIRUS  =  enemy"), 150, 255, 20, rl.WHITE)
+	rl.DrawText(cstring("BACKDOOR VIRUS  =  ranged enemy"), 150, 290, 20, rl.WHITE)
+	rl.DrawText(cstring("WORM  =  charger enemy"), 150, 325, 20, rl.WHITE)
+	rl.DrawText(cstring("CORRUPTED CORE  =  boss"), 150, 360, 20, rl.WHITE)
+	rl.DrawText(cstring("SECTOR  =  room / wave"), 150, 395, 20, rl.WHITE)
+	rl.DrawText(cstring("INTEGRITY  =  health"), 150, 430, 20, rl.WHITE)
+	rl.DrawText(cstring("THREATS  =  defeated enemies"), 150, 465, 20, rl.WHITE)
+	rl.DrawText(cstring("DATA  =  experience from cleared sectors"), 150, 500, 20, rl.WHITE)
+
+	rl.DrawText(cstring("SCAN  =  fire rate"), 700, 220, 20, rl.WHITE)
+	rl.DrawText(cstring("PACKET BURST  =  multi-shot"), 700, 255, 20, rl.WHITE)
+	rl.DrawText(cstring("DEEP CLEAN  =  piercing packets"), 700, 290, 20, rl.WHITE)
+	rl.DrawText(cstring("REDIRECT  =  ricochet packets"), 700, 325, 20, rl.WHITE)
+	rl.DrawText(cstring("QUARANTINE  =  convert a virus to an ally"), 700, 360, 20, rl.WHITE)
+	rl.DrawText(cstring("SYSTEM RESTORE  =  regain integrity"), 700, 395, 20, rl.WHITE)
+	rl.DrawText(cstring("BOTNET BLOOM  =  faster virus spawns"), 700, 430, 20, rl.WHITE)
+	rl.DrawText(cstring("POLYMORPHIC CODE  =  viruses split"), 700, 465, 20, rl.WHITE)
+	rl.DrawText(cstring("FIREWALL PULSE  =  dash shockwave"), 700, 500, 20, rl.WHITE)
+
+	rl.DrawRectangle(490, 600, 300, 55, rl.Color{35, 70, 65, 255})
+	rl.DrawRectangleLines(490, 600, 300, 55, rl.Color{140, 190, 160, 255})
+	back := cstring("BACK TO MENU")
+	rl.DrawText(back, SCREEN_W / 2 - rl.MeasureText(back, 22) / 2, 616, 22, rl.WHITE)
 }
 
 draw_arena :: proc() {
@@ -750,7 +1015,7 @@ draw_player :: proc() {
 	rl.DrawCircleV(p.pos, PLAYER_RADIUS, col)
 
 	// aim line toward the mouse cursor
-	mouse := rl.GetMousePosition()
+	mouse := get_game_mouse_position()
 	aim := vec2_normalize(vec2_sub(mouse, p.pos))
 	tip := vec2_add(p.pos, vec2_scale(aim, PLAYER_RADIUS + 10))
 	rl.DrawLineV(p.pos, tip, rl.Color{255, 255, 255, 120})
@@ -952,8 +1217,11 @@ draw_upgrade_screen :: proc() {
 	rl.DrawText(subtitle, SCREEN_W / 2 - subtitle_w / 2, 72, 20, rl.LIGHTGRAY)
 
 	mouse := rl.GetMousePosition()
-	for i in 0..<3 {
-		x := i32(170 + i * 320)
+	for i in 0..<game.upgrade_card_count {
+		start_x := 170
+		if game.upgrade_card_count == 2 do start_x = 330
+		if game.upgrade_card_count == 1 do start_x = 490
+		x := i32(start_x + i * 320)
 		hovered := mouse.x >= f32(x) && mouse.x <= f32(x + 260) && mouse.y >= 240 && mouse.y <= 480
 		fill := rl.Color{13, 43, 48, 255}
 		accent := rl.Color{70, 220, 190, 255}
@@ -1010,7 +1278,7 @@ draw_victory :: proc() {
 	sub := fmt.ctprintf("Core deleted  -  Score %d", game.kills * 10 + int(game.elapsed))
 	sub_w := rl.MeasureText(sub, 24)
 	rl.DrawText(sub, SCREEN_W / 2 - sub_w / 2, SCREEN_H / 2 - 10, 24, rl.WHITE)
-	hint := cstring("Press R to play again")
+	hint := cstring("Press ENTER for main menu")
 	hint_w := rl.MeasureText(hint, 20)
 	rl.DrawText(hint, SCREEN_W / 2 - hint_w / 2, SCREEN_H / 2 + 50, 20, rl.LIGHTGRAY)
 }
@@ -1021,22 +1289,62 @@ draw_victory :: proc() {
 
 main :: proc() {
 	rl.InitWindow(SCREEN_W, SCREEN_H, "Virus Cleanup")
+	rl.SetExitKey(.KEY_NULL)
 	rl.SetTargetFPS(60)
 	defer rl.CloseWindow()
+	render_target = rl.LoadRenderTexture(SCREEN_W, SCREEN_H)
+	defer rl.UnloadRenderTexture(render_target)
+	master_volume = 0.8
+	music_enabled = true
+	load_audio()
+	defer unload_audio()
+	load_ascension_progress()
+	load_endless_progress()
 
 	init_game()
 	game.state = .Title
 	quit := false
+	escape_armed := false
 
 	for !rl.WindowShouldClose() && !quit {
 		dt := rl.GetFrameTime()
+		rl.UpdateMusicStream(audio.music)
+		if escape_armed && rl.IsKeyPressed(.ESCAPE) do quit = true
+		escape_armed = true
 
 		if game.state == .Title {
-			if rl.IsKeyPressed(.ENTER) do init_game()
-			if rl.IsMouseButtonPressed(.LEFT) {
-				mouse := rl.GetMousePosition()
-				if mouse.x >= 490 && mouse.x <= 790 && mouse.y >= 320 && mouse.y <= 390 do init_game()
-				if mouse.x >= 490 && mouse.x <= 790 && mouse.y >= 420 && mouse.y <= 490 do quit = true
+			if rl.IsKeyPressed(.L) do show_legend = !show_legend
+			menu_mouse := get_game_mouse_position()
+			if rl.IsKeyPressed(.F) do rl.ToggleFullscreen()
+			if show_legend {
+				if rl.IsMouseButtonPressed(.LEFT) && menu_mouse.x >= 490 && menu_mouse.x <= 790 && menu_mouse.y >= 600 && menu_mouse.y <= 655 do show_legend = false
+			} else {
+				if rl.IsMouseButtonDown(.LEFT) && menu_mouse.x >= 530 && menu_mouse.x <= 750 && menu_mouse.y >= 68 && menu_mouse.y <= 102 {
+					master_volume = clamp((menu_mouse.x - 530) / 220, 0, 1)
+					set_audio_volume(master_volume)
+				}
+				if rl.IsMouseButtonPressed(.LEFT) && menu_mouse.x >= 800 && menu_mouse.x <= 910 && menu_mouse.y >= 68 && menu_mouse.y <= 108 {
+					music_enabled = !music_enabled
+					set_audio_volume(master_volume)
+				}
+				if rl.IsKeyPressed(.ENTER) do init_game()
+				if rl.IsMouseButtonPressed(.LEFT) {
+				mouse := get_game_mouse_position()
+				for i in 0..<5 {
+					col := i % 3
+					row := i / 3
+					x := f32(170 + col * 320)
+					if row == 1 do x = f32(330 + col * 320)
+					y := f32(330 + row * 70)
+					if i < ascension_unlocked && mouse.x >= x && mouse.x <= x + 260 && mouse.y >= y && mouse.y <= y + 60 {
+						start_ascension(i + 1)
+					}
+				}
+				if mouse.x >= 490 && mouse.x <= 790 && mouse.y >= 490 && mouse.y <= 545 do init_game()
+				if endless_unlocked && mouse.x >= 490 && mouse.x <= 790 && mouse.y >= 555 && mouse.y <= 610 do start_endless()
+				if mouse.x >= 490 && mouse.x <= 790 && mouse.y >= 620 && mouse.y <= 675 do quit = true
+				if mouse.x >= 930 && mouse.x <= 1150 && mouse.y >= 68 && mouse.y <= 108 do show_legend = true
+				}
 			}
 		} else if game.state == .Playing {
 			update_player(dt)
@@ -1048,15 +1356,21 @@ main :: proc() {
 			handle_upgrade_input()
 		} else if game.state == .Room_Clear {
 			if rl.IsKeyPressed(.ENTER) do start_next_room()
+		} else if game.state == .Victory {
+			if rl.IsKeyPressed(.ENTER) do game.state = .Title
 		} else {
 			if rl.IsKeyPressed(.R) do init_game()
 		}
 
-		rl.BeginDrawing()
+		rl.BeginTextureMode(render_target)
 		rl.ClearBackground(rl.Color{8, 22, 26, 255})
 
 		if game.state == .Title {
-			draw_title_screen()
+			if show_legend {
+				draw_legend_screen()
+			} else {
+				draw_title_screen()
+			}
 		} else {
 			draw_arena()
 			draw_bullets()
@@ -1069,6 +1383,23 @@ main :: proc() {
 			if game.state == .Victory do draw_victory()
 		}
 
-		rl.EndDrawing()
+		rl.EndTextureMode()
+
+		rl.BeginDrawing()
+		rl.ClearBackground(rl.Color{2, 7, 9, 255})
+	screen_w := f32(rl.GetScreenWidth())
+	screen_h := f32(rl.GetScreenHeight())
+	scale := min(screen_w / f32(SCREEN_W), screen_h / f32(SCREEN_H))
+	dest_w := f32(SCREEN_W) * scale
+	dest_h := f32(SCREEN_H) * scale
+	dest := rl.Rectangle{
+		(screen_w - dest_w) * 0.5,
+		(screen_h - dest_h) * 0.5,
+		dest_w,
+		dest_h,
+	}
+	source := rl.Rectangle{0, 0, f32(SCREEN_W), -f32(SCREEN_H)}
+	rl.DrawTexturePro(render_target.texture, source, dest, Vec2{0, 0}, 0, rl.WHITE)
+	rl.EndDrawing()
 	}
 }

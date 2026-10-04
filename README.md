@@ -1,3 +1,29 @@
+# Virus Cleanup
+
+## Build and Run
+
+From the project root, build the game with:
+
+```powershell
+odin build src -out:VirusCleanup.exe
+```
+
+Then run it with:
+
+```powershell
+.\VirusCleanup.exe
+```
+
+## Controls
+
+- `WASD` or arrow keys: Move
+- Mouse: Aim and shoot
+- `Space`: Dash
+- `F`: Toggle fullscreen
+- `Esc`: Exit
+
+---
+
 # Mini Game Jam — ARENA + your twist
 
 CSCI 4160U - Game Development · Stage 3 (Chapters 5 and 6) · **Side Quest SQ2, 5 pts**

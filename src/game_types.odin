@@ -96,6 +96,7 @@ Bullet :: struct {
 }
 
 Game_State :: enum { Title, Playing, Room_Clear, Player_Upgrade, Enemy_Upgrade, Game_Over, Victory }
+Ascension :: enum { Standard, Chargers, Bullet_Hell, Splitter_Swarm, Dash_Only, Restless }
 
 Upgrade_Type :: enum {
 	Player_Speed, Rapid_Fire, Heavy_Bullets, Max_Health, Heal, Multi_Shot, Piercing, Vampire, Ricochet, Necromancer,
@@ -133,6 +134,17 @@ Upgrade_Card :: struct {
 	ranged_cooldown: f32,
 }
 
+Audio_State :: struct {
+	music:        rl.Music,
+	player_shoot: rl.Sound,
+	enemy_shoot:  rl.Sound,
+	hurt:         rl.Sound,
+	death:        rl.Sound,
+	dash:         rl.Sound,
+	card:         rl.Sound,
+	lose:         rl.Sound,
+}
+
 Game :: struct {
 	state:       Game_State,
 	player:      Player,
@@ -164,9 +176,19 @@ Game :: struct {
 	next_enemy_id: int,
 	final_reinforcement_timer: f32,
 	upgrade_cards: [3]Upgrade_Card,
+	upgrade_card_count: int,
+	ascension: Ascension,
+	endless: bool,
 }
 
 game: Game
+audio: Audio_State
+ascension_unlocked: int
+endless_unlocked: bool
+master_volume: f32
+music_enabled: bool
+show_legend: bool
+render_target: rl.RenderTexture2D
 
 vec2_add :: proc(a, b: Vec2) -> Vec2 { return Vec2{a.x + b.x, a.y + b.y} }
 vec2_sub :: proc(a, b: Vec2) -> Vec2 { return Vec2{a.x - b.x, a.y - b.y} }

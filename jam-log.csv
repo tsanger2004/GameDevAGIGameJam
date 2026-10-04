@@ -1,5 +1,4 @@
 session,date,minutes,tool,model,tokens_in,tokens_out,tokens_source,prompts,features,llm_helpfulness,notes
-1,2026-09-23,40,claude-code,claude-sonnet-5,182000,9400,ccusage incl. cache,11,window;states;movement,4,"best: state switch in one go; worst: invented rl.GetDeltaTime"
 
 1,2026-09-23,30,claude-web,claude-sonnet-5,unavailable,unavailable,unavailable,2,window;states;movement;enemies;shooting;implement kenney assets,5,"best:everything in one go othen then ->; worst: Kenney Assets didn't work as I ran out of tokens"
 2,2026-09-26,10,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,1,Create xp system;upgrade cards for player and enemies,5,"best: everything in one go; worst: Cards are very basic and not very useful for the player. I need to make them more interesting and useful."
@@ -15,3 +14,10 @@ session,date,minutes,tool,model,tokens_in,tokens_out,tokens_source,prompts,featu
 12,2026-09-30,5,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,1,Changed enemy spawn progression,5,"best: Worked perfectly; worst: IDK"
 13,2026-09-30,30,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,14,Reworked boss fight to 3 phases,5,"best: Added a new boss with a new attack pattern; worst: Took many iterations to get the boss to work properly and I find it easy"
 14,2026-10-02,30,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,7,Reworked visuals and added a theme; Fixed a lot of bugs;,5,"best: Added a new theme and visuals; worst: Had to manually fix a lot of visuals but was helpful for a quick pass"
+15,2026-10-02,20,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,3,Added audio sfx;,5,"best: Added audio; worst: Audio is very basic but I do not have time to improve it"
+16,2026-10-02,30,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,4,Ascension 1 Worm Surge;charger-only boss;charger upgrade pool,5,"best: Made the whole run consistently charger themed; worst: Boss behavior needed extra phase work"
+17,2026-10-02,30,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,3,Ascension 2 Packet Flood;normal-ranged mix;boss reinforcements,5,"best: Separated normal and ranged enemy behavior; worst: Needed to correct the initial all-ranged interpretation"
+18,2026-10-02,30,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,3,Ascension 3 Polymorphic Swarm;four-way boss split;splitter cap,5,"best: Added the four-child boss split; worst: Needed to preserve mixed enemy types in the same mode"
+19,2026-10-02,30,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,4,Ascension 4 Dash Protocol;Ascension 5 They Grow Restless;dash-only mode;all enemy boosts,5,"best: Added two distinct high-level modes; worst: Tuned dash-only boss health and damage expectations"
+20,2026-10-02,30,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,3,Endless mode;separate unlock;five-sector cycle,5,"best: Added a replayable standard loop; worst: Needed separate persistence so ascensions were not affected"
+21,2026-10-02,30,Github-Copilot,GPT-5.6 Luna,unavailable,unavailable,unavailable,8,fullscreen scaling;legend tab;volume slider;music toggle;looping ambience;menu polish,5,"best: Finished the presentation and accessibility polish; worst: Found and fixed several input overlap and startup issues"

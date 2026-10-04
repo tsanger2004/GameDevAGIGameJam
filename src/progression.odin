@@ -40,8 +40,34 @@ init_game :: proc() {
 	game.ranged_cooldown_multiplier = 1
 	game.next_enemy_id = 1
 	game.final_reinforcement_timer = FINAL_REINFORCEMENT_INTERVAL
+	game.upgrade_card_count = 3
+	game.ascension = .Standard
+	game.endless = false
 	start_room()
 	game.state = .Playing
+}
+
+start_ascension :: proc(level: int) {
+	init_game()
+	switch level {
+	case 1:
+		game.ascension = .Chargers
+	case 2:
+		game.ascension = .Bullet_Hell
+	case 3:
+		game.ascension = .Splitter_Swarm
+	case 4:
+		game.ascension = .Dash_Only
+	case 5:
+		game.ascension = .Restless
+	}
+	game.enemy_splitter = 1 if game.ascension == .Splitter_Swarm else 0
+	if game.ascension == .Dash_Only do game.player.dash_shockwave_level = 1
+}
+
+start_endless :: proc() {
+	init_game()
+	game.endless = true
 }
 
 start_boss_debug :: proc() {
@@ -79,13 +105,41 @@ make_upgrade_cards :: proc(enemy: bool) {
 		pool[i] = player_pool[i]
 	}
 	if enemy {
-		pool_size = 5
-		for i in 0..<pool_size {
-			pool[i] = enemy_pool[i]
+		if game.ascension == .Chargers {
+			pool_size = 1
+			pool[0] = enemy_pool[3]
+			game.upgrade_card_count = 1
+		} else if game.ascension == .Bullet_Hell {
+			pool_size = 2
+			pool[0] = enemy_pool[2]
+			pool[1] = enemy_pool[4]
+			game.upgrade_card_count = 2
+		} else if game.ascension == .Splitter_Swarm {
+			pool_size = 1
+			pool[0] = enemy_pool[1]
+			game.upgrade_card_count = 1
+		} else if game.ascension == .Restless {
+			pool_size = 1
+			pool[0] = RESTLESS_ENEMY_CARD
+			game.upgrade_card_count = 1
+		} else {
+			pool_size = 5
+			game.upgrade_card_count = 3
+			for i in 0..<pool_size {
+				pool[i] = enemy_pool[i]
+			}
+		}
+	} else {
+		if game.ascension == .Dash_Only {
+			pool_size = 1
+			pool[0] = player_pool[6]
+			game.upgrade_card_count = 1
+		} else {
+			game.upgrade_card_count = 3
 		}
 	}
 	used: [8]bool
-	for i in 0..<3 {
+	for i in 0..<game.upgrade_card_count {
 		index := int(rand.float32() * f32(pool_size))
 		for used[index] do index = (index + 1) % pool_size
 		used[index] = true
@@ -123,7 +177,7 @@ apply_upgrade :: proc(card: Upgrade_Card) {
 	game.enemy_health_bonus += card.enemy_health
 	if card.spawn_rate > 0 do game.spawn_rate_multiplier *= card.spawn_rate
 	game.enemy_contact_damage += card.contact_damage
-	if card.splitter do game.enemy_splitter += 1
+	if card.splitter do game.enemy_splitter = min(2, game.enemy_splitter + 1)
 	game.enemy_knockback += card.knockback
 	if card.ranged {
 		game.enemy_ranged = true
@@ -138,14 +192,22 @@ apply_upgrade :: proc(card: Upgrade_Card) {
 
 handle_upgrade_input :: proc() {
 	if !rl.IsMouseButtonPressed(.LEFT) do return
-	mouse := rl.GetMousePosition()
-	for i in 0..<3 {
-		x := f32(170 + i * 320)
+	mouse := get_game_mouse_position()
+	for i in 0..<game.upgrade_card_count {
+		start_x := 170
+		if game.upgrade_card_count == 2 do start_x = 330
+		if game.upgrade_card_count == 1 do start_x = 490
+		x := f32(start_x + i * 320)
 		if mouse.x >= x && mouse.x <= x + 260 && mouse.y >= 240 && mouse.y <= 480 {
+			play_audio(audio.card)
 			apply_upgrade(game.upgrade_cards[i])
 			if game.state == .Player_Upgrade {
-				make_upgrade_cards(true)
-				game.state = .Enemy_Upgrade
+				if game.ascension == .Dash_Only {
+					start_next_room()
+				} else {
+					make_upgrade_cards(true)
+					game.state = .Enemy_Upgrade
+				}
 			} else {
 				start_next_room()
 			}
